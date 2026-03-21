@@ -4,7 +4,12 @@ from fastapi_users import schemas
 
 
 class UserRead(schemas.BaseUser[uuid.UUID]):
-    pass
+    full_name: str | None = None
+    phone: str | None = None
+    office: str | None = None
+    team: str | None = None
+    title: str | None = None
+    employment_status: str | None = None
 
 
 class UserCreate(schemas.BaseUserCreate):
@@ -12,4 +17,9 @@ class UserCreate(schemas.BaseUserCreate):
 
 
 class UserUpdate(schemas.BaseUserUpdate):
-    pass
+    full_name: str | None = None
+    phone: str | None = None
+    office: str | None = None
+    team: str | None = None
+    title: str | None = None
+    employment_status: str | None = None

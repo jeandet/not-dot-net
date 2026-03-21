@@ -26,6 +26,12 @@ class User(SQLAlchemyBaseUserTableUUID, Base):
     auth_method: Mapped[AuthMethod] = mapped_column(
         SAEnum(AuthMethod), default=AuthMethod.LOCAL
     )
+    full_name: Mapped[str | None] = mapped_column(default=None)
+    phone: Mapped[str | None] = mapped_column(default=None)
+    office: Mapped[str | None] = mapped_column(default=None)
+    team: Mapped[str | None] = mapped_column(default=None)
+    title: Mapped[str | None] = mapped_column(default=None)
+    employment_status: Mapped[str | None] = mapped_column(default=None)
 
 
 _engine: AsyncEngine | None = None
