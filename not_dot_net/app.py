@@ -1,67 +1,41 @@
-#!/usr/bin/env python3
-"""This is just a simple authentication example.
-
-Please see the `OAuth2 example at FastAPI <https://fastapi.tiangolo.com/tutorial/security/simple-oauth2/>`_  or
-use the great `Authlib package <https://docs.authlib.org/en/v0.13/client/starlette.html#using-fastapi>`_ to implement a classing real authentication system.
-Here we just demonstrate the NiceGUI integration.
-"""
-
 from typing import Optional
+
 from nicegui import app, ui
-from not_dot_net.config import load_settings
-from not_dot_net.frontend import load as load_frontend
-from not_dot_net.backend.app import NotDotNetApp
-from anyio import run
-from contextlib import asynccontextmanager
+
+from not_dot_net.config import init_settings
+from not_dot_net.backend.db import init_db, create_db_and_tables
+from not_dot_net.backend.users import fastapi_users, jwt_backend, cookie_backend
+from not_dot_net.backend.schemas import UserRead, UserUpdate
+from not_dot_net.backend.auth import router as auth_router
+from not_dot_net.frontend.login import setup as setup_login
+from not_dot_net.frontend.user_page import setup as setup_user_page
 
 
-@asynccontextmanager
-async def get_user_manager(db_path: str, create_db_and_tables: bool = False):
-    from not_dot_net.backend.db import get_db
-    from not_dot_net.backend.users import get_authentication_backend
+def create_app(config_file: str | None = None):
+    settings = init_settings(config_file)
+    init_db(settings.backend.database_url)
 
-    db = get_db(db_path)
-    if create_db_and_tables:
-        await db.create_db_and_tables()
-    backend = get_authentication_backend(db)
-    get_async_session_context = asynccontextmanager(db.get_async_session)
-    get_user_db_context = asynccontextmanager(db.get_user_db)
-    get_user_manager_context = asynccontextmanager(backend.get_user_manager)
+    app.on_startup(create_db_and_tables)
 
-    async with get_async_session_context() as session:
-        async with get_user_db_context(session) as user_db:
-            async with get_user_manager_context(user_db) as user_manager:
-                yield user_manager
+    app.include_router(
+        fastapi_users.get_auth_router(jwt_backend),
+        prefix="/auth/jwt",
+        tags=["auth"],
+    )
+    app.include_router(
+        fastapi_users.get_auth_router(cookie_backend),
+        prefix="/auth/cookie",
+        tags=["auth"],
+    )
+    app.include_router(
+        fastapi_users.get_users_router(UserRead, UserUpdate),
+        prefix="/users",
+        tags=["users"],
+    )
+    app.include_router(auth_router)
 
-
-async def create_user(
-    username: str, password: str, config_file: Optional[str] = None
-) -> None:
-    settings = load_settings(config_file=config_file)
-    async with get_user_manager(
-        settings.backend.database_url, create_db_and_tables=True
-    ) as user_manager:
-        from not_dot_net.backend.schemas import UserCreate
-
-        user_create = UserCreate(
-            email=username,
-            password=password,
-            is_active=True,
-            is_superuser=False,
-        )
-
-        user = await user_manager.create(user_create)
-        print(f"User '{user.email}' created successfully.")
-
-
-class App:
-    def __init__(self, host: str, port: int, config_file: Optional[str]) -> None:
-        self.host = host
-        self.port = port
-        self.settings = settings = load_settings(config_file=config_file)
-        self.ndtapp = ndtapp = NotDotNetApp(app, settings.backend.database_url)
-        load_frontend(ndtapp)
-        self.ndtapp.register_routes(app)
+    setup_login()
+    setup_user_page()
 
 
 @ui.page("/")
@@ -99,7 +73,7 @@ def main(
     env_file: Optional[str] = None,
     reload=False,
 ) -> None:
-    _app = App(host, port, env_file)
+    create_app(env_file)
     ui.run(
         storage_secret="test", host=host, port=port, reload=reload, title="NotDotNet"
     )

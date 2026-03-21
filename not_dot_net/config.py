@@ -1,3 +1,4 @@
+from pydantic import BaseModel
 from pydantic_settings import (
     BaseSettings,
     SettingsConfigDict,
@@ -6,21 +7,21 @@ from pydantic_settings import (
 )
 
 
-class LDAPSettings(BaseSettings):
+class LDAPSettings(BaseModel):
     url: str = "ldap://localhost"
     base_dn: str = "dc=example,dc=com"
     port: int = 389
 
 
-class AuthSettings(BaseSettings):
+class AuthSettings(BaseModel):
     ldap: LDAPSettings = LDAPSettings()
 
 
-class UsersSettings(BaseSettings):
+class UsersSettings(BaseModel):
     auth: AuthSettings = AuthSettings()
 
 
-class BackendSettings(BaseSettings):
+class BackendSettings(BaseModel):
     users: UsersSettings = UsersSettings()
     database_url: str = "sqlite+aiosqlite:///./test.db"
 
@@ -28,6 +29,7 @@ class BackendSettings(BaseSettings):
 class Settings(BaseSettings):
     app_name: str = "LPP Intranet"
     admin_email: str = ""
+    jwt_secret: str = "CHANGE-ME-IN-PRODUCTION"
     backend: BackendSettings = BackendSettings()
 
     model_config = SettingsConfigDict(yaml_file="config.yaml")
@@ -41,17 +43,23 @@ class Settings(BaseSettings):
         dotenv_settings: PydanticBaseSettingsSource,
         file_secret_settings: PydanticBaseSettingsSource,
     ) -> tuple[PydanticBaseSettingsSource, ...]:
-        return (YamlConfigSettingsSource(settings_cls),)
+        return (
+            init_settings,
+            env_settings,
+            YamlConfigSettingsSource(settings_cls),
+        )
 
 
-def load_settings(config_file: str | None = None) -> Settings:
-    from nicegui import app
+_settings: Settings | None = None
 
-    app.state.settings = Settings(_yaml_file=config_file)
-    return app.state.settings
+
+def init_settings(config_file: str | None = None) -> Settings:
+    global _settings
+    _settings = Settings(_yaml_file=config_file)
+    return _settings
 
 
 def get_settings() -> Settings:
-    from nicegui import app
-
-    return app.state.settings
+    if _settings is None:
+        raise RuntimeError("Settings not initialized — call init_settings() first")
+    return _settings

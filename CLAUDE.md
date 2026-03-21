@@ -9,42 +9,58 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Commands
 
 ```bash
-# Install (uses flit)
-pip install -e .
+# Install (uses flit, uv recommended)
+uv pip install -e .
 
 # Run the app
-python -m not_dot_net.cli serve --host localhost --port 8000 --env-file config.yaml
+uv run python -m not_dot_net.cli serve --host localhost --port 8000 --env-file config.yaml
 
 # Create a user
-python -m not_dot_net.cli create-user <email> <password> --env-file config.yaml
+uv run python -m not_dot_net.cli create-user <email> <password> --env-file config.yaml
 
 # Dump default config
-python -m not_dot_net.cli default-config
+uv run python -m not_dot_net.cli default-config
 
 # Run tests (uses nicegui testing plugin)
-pytest
+uv run pytest
 ```
 
 ## Architecture
 
-### Plugin/loader registration pattern
+### Startup flow
 
-Both frontend pages and auth backends use the same pattern: a `register.py` module holds a global list, a decorator appends loaders to it, and the package `__init__.py` auto-discovers modules via filesystem iteration then calls all registered loaders.
+`cli.py serve` → `app.main()` → `create_app(config_file)`:
+1. `init_settings()` loads YAML + env config into module-level singleton
+2. `init_db()` creates async engine + session maker at module level
+3. `app.on_startup(create_db_and_tables)` schedules table creation
+4. FastAPI-Users routers are included (`/auth/jwt`, `/auth/cookie`, `/users`)
+5. Custom auth routers are included (`/auth/local`, `/auth/ldap`, `/auth/register`)
+6. Frontend pages are set up (`/login`, `/user/profile`)
 
-- **Auth backends**: `backend/users/auth/register.py` holds `AUTH_BACKENDS`. Each auth module (e.g. `local.py`, `ldap/ldap.py`) decorates a `load(get_user_db, get_user_manager, get_jwt_strategy)` function with `@register_backend_loader`. To add a new auth method, create a new module in `backend/users/auth/` with that decorator.
+### Module-level dependency injection
 
-- **Frontend pages**: `frontend/register.py` holds `FRONTEND_LOADERS`. Each page module (e.g. `login.py`, `user_page.py`) decorates a `load(ndtapp: NotDotNetApp)` function with `@register_frontend_loader`. To add a new page, create a new module in `frontend/` with that decorator.
+Following idiomatic FastAPI-Users patterns, dependencies are module-level:
+- `backend/db.py`: `get_async_session()`, `get_user_db()` — async generators for `Depends()`
+- `backend/users.py`: `get_user_manager()`, `current_active_user`, `current_active_user_optional`
 
-### Wiring flow
+Both `db.py` and `config.py` use `init_*()` functions that must be called before dependencies are usable. `create_app()` handles this.
 
-`App.__init__` (in `app.py`) → creates `NotDotNetApp` (which sets up DB + auth backends) → calls `load_frontend(ndtapp)` (registers NiceGUI pages) → calls `register_routes(app)` (mounts FastAPI auth/user routers).
+### Auth endpoints
 
-### Key types
+`backend/auth/` contains APIRouter-based endpoints:
+- `local.py`: POST `/auth/local` (password login), POST `/auth/register` (registration)
+- `ldap.py`: POST `/auth/ldap` (LDAP bind + JWT)
 
-- `DB` dataclass (`backend/db.py`): bundles async session maker, table creation, and user DB dependencies.
-- `NotDotNetAuthBackend` dataclass (`backend/users/users.py`): bundles JWT/cookie auth backends, FastAPIUsers instance, and user manager factory.
-- `Settings` hierarchy (`config.py`): nested pydantic-settings models (Settings → BackendSettings → UsersSettings → AuthSettings → LDAPSettings). Loaded from YAML, stored on `app.state.settings`.
+### Frontend pages
+
+NiceGUI pages in `frontend/` expose a `setup()` function that registers `@ui.page` routes. They import dependencies directly from `backend/users.py`.
+
+`login.py` uses `authenticate_and_get_token()` helper (in `backend/users.py`) which manually resolves the DI chain — this is the fastapi-users escape hatch for NiceGUI callbacks where FastAPI DI is unavailable.
+
+### Configuration
+
+`config.py` uses nested Pydantic models under a single `BaseSettings` root. Sources: init args > env vars > YAML file. JWT secret is in `Settings.jwt_secret`.
 
 ### Testing
 
-Tests use `nicegui.testing.User` (configured via `pytest` plugin in pyproject.toml: `-p nicegui.testing.user_plugin`). The test `app.py` entry point is configured as `main_file = "app.py"` in `[tool.pytest]`.
+Tests use `nicegui.testing.User` (configured via pytest plugin in pyproject.toml: `-p nicegui.testing.user_plugin`). The test entry point is `main_file = "app.py"` in `[tool.pytest]`.

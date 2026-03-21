@@ -1,8 +1,9 @@
-from cyclopts import App
+import asyncio
 from typing import Optional
-from yaml import safe_dump
+from contextlib import asynccontextmanager
 
-from not_dot_net.app import main, create_user as app_create_user
+from cyclopts import App
+from yaml import safe_dump
 
 app = App(name="NotDotNet", version="0.1.0")
 
@@ -10,23 +11,44 @@ app = App(name="NotDotNet", version="0.1.0")
 @app.command
 def serve(host: str = "localhost", port: int = 8000, env_file: Optional[str] = None):
     """Serve the NotDotNet application."""
-    print(f"Serving NotDotNet on {host}:{port} in {env_file} environment")
-    # Here you would add the code to actually start the server
-    # For example, using FastAPI or Flask
+    from not_dot_net.app import main
+
     main(host, port, env_file, reload=False)
 
 
 @app.command
 def create_user(username: str, password: str, env_file: Optional[str] = None):
-    """Create a new user in the NotDotNet application."""
-    print(f"Creating user '{username}' in {env_file} environment")
-    # Here you would add the code to create a user in the database
-    # For example, using SQLAlchemy or another ORM
-    app_create_user(username, password, env_file)
+    """Create a new user."""
+
+    async def _create():
+        from not_dot_net.config import init_settings
+        from not_dot_net.backend.db import init_db, create_db_and_tables, get_async_session, get_user_db
+        from not_dot_net.backend.users import get_user_manager
+        from not_dot_net.backend.schemas import UserCreate
+
+        settings = init_settings(env_file)
+        init_db(settings.backend.database_url)
+        await create_db_and_tables()
+
+        async with asynccontextmanager(get_async_session)() as session:
+            async with asynccontextmanager(get_user_db)(session) as user_db:
+                async with asynccontextmanager(get_user_manager)(user_db) as user_manager:
+                    user = await user_manager.create(
+                        UserCreate(
+                            email=username,
+                            password=password,
+                            is_active=True,
+                            is_superuser=False,
+                        )
+                    )
+                    print(f"User '{user.email}' created successfully.")
+
+    asyncio.run(_create())
 
 
 @app.command
 def default_config():
+    """Print default configuration as YAML."""
     from not_dot_net.config import Settings
 
     print(safe_dump(Settings().model_dump()))
