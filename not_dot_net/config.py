@@ -34,6 +34,13 @@ class Settings(BaseSettings):
     jwt_secret: str = "dev-only-change-this-in-production"
     storage_secret: str = "dev-only-change-this-in-production"
     backend: BackendSettings = BackendSettings()
+    teams: list[str] = [
+        "Plasma Physics",
+        "Instrumentation",
+        "Space Weather",
+        "Theory & Simulation",
+        "Administration",
+    ]
 
     model_config = SettingsConfigDict(yaml_file="config.yaml")
 

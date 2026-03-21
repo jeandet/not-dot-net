@@ -28,3 +28,10 @@ def test_user_profile_fields_accept_values():
     assert user.team == "Plasma Physics"
     assert user.title == "Researcher"
     assert user.employment_status == "Permanent"
+
+
+def test_settings_has_teams_list():
+    from not_dot_net.config import Settings
+    settings = Settings(jwt_secret="x" * 34, storage_secret="x" * 34)
+    assert hasattr(settings, "teams")
+    assert len(settings.teams) > 0
