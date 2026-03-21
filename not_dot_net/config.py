@@ -29,7 +29,7 @@ class BackendSettings(BaseModel):
 
 class Settings(BaseSettings):
     app_name: str = "LPP Intranet"
-    admin_email: str = "admin@localhost.local"
+    admin_email: str = "admin@not-dot-net.dev"
     admin_password: str = "admin"
     jwt_secret: str = "dev-only-change-in-production"
     storage_secret: str = "dev-only-change-in-production"
