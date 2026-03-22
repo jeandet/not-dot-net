@@ -103,7 +103,7 @@ async def create_request(
 
 async def submit_step(
     request_id: uuid.UUID,
-    actor_id: uuid.UUID,
+    actor_id: uuid.UUID | None,
     action: str,
     data: dict | None = None,
     comment: str | None = None,

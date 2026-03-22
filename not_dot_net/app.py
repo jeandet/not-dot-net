@@ -10,6 +10,7 @@ from not_dot_net.backend.schemas import UserRead, UserUpdate
 from not_dot_net.backend.auth import router as auth_router
 from not_dot_net.frontend.login import setup as setup_login
 from not_dot_net.frontend.shell import setup as setup_shell
+from not_dot_net.frontend.workflow_token import setup as setup_token
 
 
 def create_app(config_file: str | None = None, _seed_fake_users: bool = False):
@@ -43,6 +44,7 @@ def create_app(config_file: str | None = None, _seed_fake_users: bool = False):
 
     setup_login()
     setup_shell()
+    setup_token()
 
 
 def main(
