@@ -27,8 +27,11 @@ def setup():
             except Exception:
                 ui.notify(t("auth_error"), color="negative")
 
+        ui.colors(primary="#0F52AC")
         with ui.column().classes("absolute-center items-center gap-4"):
-            ui.label(t("app_name")).classes("text-h4 text-weight-light")
+            ui.label(t("app_name")).classes("text-h4 text-weight-light").style(
+                "color: #0F52AC"
+            )
             with ui.card().classes("w-80"):
                 email = ui.input(t("email")).props("outlined dense").classes(
                     "w-full"
@@ -38,5 +41,7 @@ def setup():
                 ).props("outlined dense").classes("w-full").on(
                     "keydown.enter", try_login
                 )
-                ui.button(t("log_in"), on_click=try_login).classes("w-full")
+                ui.button(t("log_in"), on_click=try_login).props(
+                    "color=primary"
+                ).classes("w-full")
         return None

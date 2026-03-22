@@ -1,5 +1,8 @@
+import logging
 import uuid
 from contextlib import asynccontextmanager
+
+logger = logging.getLogger("not_dot_net.users")
 
 from fastapi import Depends, Request
 from fastapi_users import BaseUserManager, FastAPIUsers, UUIDIDMixin, models
@@ -26,7 +29,7 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         return get_settings().jwt_secret
 
     async def on_after_register(self, user: User, request: Request | None = None):
-        print(f"User {user.id} has registered.")
+        logger.info("User %s registered", user.id)
 
     async def on_after_update(self, user: User, update_dict: dict, request: Request | None = None):
         if "role" in update_dict:
@@ -99,7 +102,7 @@ async def ensure_default_admin() -> None:
                     user.role = Role.ADMIN
                     session.add(user)
                     await session.commit()
-                    print(f"Default admin '{settings.admin_email}' created.")
+                    logger.info("Default admin '%s' created", settings.admin_email)
                 except UserAlreadyExists:
                     pass
 
@@ -132,6 +135,12 @@ async def seed_fake_users() -> None:
                         )
                         for field in ("full_name", "phone", "office", "team", "title", "employment_status"):
                             setattr(user, field, fake.get(field))
+                        if fake.get("start_date"):
+                            from datetime import date as _date
+                            user.start_date = _date.fromisoformat(fake["start_date"])
+                        if fake.get("end_date"):
+                            from datetime import date as _date
+                            user.end_date = _date.fromisoformat(fake["end_date"])
                         user.role = Role(fake["role"])
                         session.add(user)
                         created_users.append(user)
@@ -140,10 +149,11 @@ async def seed_fake_users() -> None:
                         pass
                 await session.commit()
                 if count:
-                    print(f"Seeded {count} fake users.")
+                    logger.info("Seeded %d fake users", count)
 
     if created_users:
         await _seed_fake_workflows(created_users)
+    await _seed_resources_and_bookings(created_users)
 
 
 async def _seed_fake_workflows(users: list) -> None:
@@ -198,10 +208,10 @@ async def _seed_fake_workflows(users: list) -> None:
 
             count += 1
         except Exception as e:
-            print(f"Seed workflow failed: {e}")
+            logger.warning("Seed workflow failed: %s", e)
 
     if count:
-        print(f"Seeded {count} workflow requests.")
+        logger.info("Seeded %d workflow requests", count)
 
 
 async def authenticate_and_get_token(email: str, password: str) -> str | None:
@@ -224,6 +234,59 @@ async def authenticate_and_get_token(email: str, password: str) -> str | None:
                 )
                 user = await user_manager.authenticate(credentials)
                 if user is None or not user.is_active:
+                    from not_dot_net.backend.audit import log_audit
+                    await log_audit("auth", "login_failed", detail=f"email={email}")
                     return None
+                from not_dot_net.backend.audit import log_audit
+                await log_audit(
+                    "auth", "login",
+                    actor_id=user.id, actor_email=user.email,
+                )
                 strategy = cookie_backend.get_strategy()
                 return await strategy.write_token(user)
+
+
+async def _seed_resources_and_bookings(users: list) -> None:
+    """Seed resources and a few sample bookings."""
+    import random as _random
+    from datetime import date, timedelta
+    from not_dot_net.backend.seed_data import SEED_RESOURCES
+    from not_dot_net.backend.booking_service import (
+        create_resource,
+        create_booking,
+        list_resources,
+    )
+
+    existing = await list_resources(active_only=False)
+    if existing:
+        return  # already seeded
+
+    rng = _random.Random(42)
+    resources = []
+    for seed in SEED_RESOURCES:
+        res = await create_resource(
+            name=seed["name"],
+            resource_type=seed["type"],
+            description=seed.get("description", ""),
+            location=seed.get("location", ""),
+        )
+        resources.append(res)
+
+    if not users:
+        logger.info("Seeded %d resources", len(resources))
+        return
+
+    # Create some bookings
+    today = date.today()
+    count = 0
+    for res in resources[:5]:
+        booker = rng.choice(users)
+        start = today + timedelta(days=rng.randint(1, 30))
+        end = start + timedelta(days=rng.randint(1, 14))
+        try:
+            await create_booking(res.id, booker.id, start, end, note="Dev seed booking")
+            count += 1
+        except Exception:
+            pass
+
+    logger.info("Seeded %d resources, %d bookings", len(resources), count)

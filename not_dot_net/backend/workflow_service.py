@@ -98,6 +98,14 @@ async def create_request(
         session.add(event)
         await session.commit()
         await session.refresh(req)
+
+        from not_dot_net.backend.audit import log_audit
+        await log_audit(
+            "workflow", "create",
+            actor_id=created_by,
+            target_type="request", target_id=req.id,
+            detail=f"type={workflow_type}",
+        )
         return req
 
 
@@ -166,6 +174,15 @@ async def submit_step(
 
         await session.commit()
         await session.refresh(req)
+
+        # Audit
+        from not_dot_net.backend.audit import log_audit
+        await log_audit(
+            "workflow", action,
+            actor_id=actor_id,
+            target_type="request", target_id=req.id,
+            detail=f"step={event.step_key} status={new_status}",
+        )
 
         # Fire notifications (after commit, best-effort)
         try:

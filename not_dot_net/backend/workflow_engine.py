@@ -12,6 +12,24 @@ def get_current_step_config(request, workflow: WorkflowConfig) -> WorkflowStepCo
     return None
 
 
+def get_step_progress(request, workflow: WorkflowConfig) -> tuple[int, int]:
+    """Return (current_step_1based, total_steps) for progress display.
+
+    Terminal statuses (completed/rejected) return (total, total) or (0, total).
+    """
+    total = len(workflow.steps)
+    if request.status == "completed":
+        return (total, total)
+    if request.status == "rejected":
+        step_keys = [s.key for s in workflow.steps]
+        idx = step_keys.index(request.current_step) if request.current_step in step_keys else 0
+        return (idx + 1, total)
+    step_keys = [s.key for s in workflow.steps]
+    if request.current_step in step_keys:
+        return (step_keys.index(request.current_step) + 1, total)
+    return (0, total)
+
+
 def get_available_actions(request, workflow: WorkflowConfig) -> list[str]:
     """Get actions available for the current step. Empty if request is terminal."""
     if request.status in ("completed", "rejected", "cancelled"):

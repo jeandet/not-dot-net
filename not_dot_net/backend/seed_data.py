@@ -1,6 +1,7 @@
 """Seed data for development — ~100 people and ~20 workflows."""
 
 import random
+from datetime import date, timedelta
 
 TEAMS = [
     "Plasma Physics",
@@ -85,6 +86,20 @@ def _generate_people(n: int = 100, rng: random.Random | None = None) -> list[dic
         role = roles[idx]
         title = rng.choice(TITLES_BY_STATUS[status])
 
+        # Permanent statuses get only start_date; fixed-term get both
+        permanent = status in ("researcher", "engineer", "admin_staff")
+        ref = date(2026, 3, 22)
+        start = ref - timedelta(days=rng.randint(30, 3650))
+        end = None
+        if not permanent:
+            duration = {
+                "phd_student": rng.randint(365 * 2, 365 * 4),
+                "postdoc": rng.randint(365, 365 * 3),
+                "intern": rng.randint(30, 180),
+                "visitor": rng.randint(14, 365),
+            }
+            end = start + timedelta(days=duration.get(status, 365))
+
         people.append({
             "email": email,
             "full_name": f"{first} {last}",
@@ -93,6 +108,8 @@ def _generate_people(n: int = 100, rng: random.Random | None = None) -> list[dic
             "phone": f"+33 1 69 33 {4000 + i:04d}",
             "title": title,
             "employment_status": status,
+            "start_date": start.isoformat(),
+            "end_date": end.isoformat() if end else None,
             "role": role,
         })
 
@@ -128,4 +145,16 @@ WORKFLOW_SEEDS = [
     {"type": "onboarding", "step": "done", "action": "approve", "data": {"person_name": "Wei Zhang", "person_email": "wei.zhang@cas.cn", "role_status": "researcher", "team": "Instrumentation", "start_date": "2026-02-15", "phone": "+86 10 6879 7000", "emergency_contact": "Spouse: +86 138 0000 1234"}},
     {"type": "onboarding", "step": "newcomer_info", "action": "submit", "data": {"person_name": "Priya Sharma", "person_email": "priya.sharma@iisc.ac.in", "role_status": "phd_student", "team": "Space Weather", "start_date": "2026-06-15"}},
     {"type": "vpn_access", "step": "rejected", "action": "reject", "data": {"target_name": "Unknown User", "target_email": "unknown@unknown.com"}, "comment": "Cannot verify identity"},
+]
+
+
+SEED_RESOURCES = [
+    {"name": "Salle Calcul PC-01", "type": "desktop", "location": "A201", "description": "Workstation 32 cores, 128GB RAM"},
+    {"name": "Salle Calcul PC-02", "type": "desktop", "location": "A201", "description": "Workstation 32 cores, 128GB RAM"},
+    {"name": "Salle Calcul PC-03", "type": "desktop", "location": "A201", "description": "Workstation 16 cores, 64GB RAM"},
+    {"name": "Portable Dell-01", "type": "laptop", "location": "B102", "description": "Dell Latitude, docking station included"},
+    {"name": "Portable Dell-02", "type": "laptop", "location": "B102", "description": "Dell Latitude"},
+    {"name": "Portable Mac-01", "type": "laptop", "location": "B102", "description": "MacBook Pro M3"},
+    {"name": "GPU Workstation", "type": "desktop", "location": "A203", "description": "NVIDIA A100, 256GB RAM — ML/simulation"},
+    {"name": "Salle Manip PC", "type": "desktop", "location": "C110", "description": "Connected to plasma chamber instruments"},
 ]

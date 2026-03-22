@@ -36,7 +36,7 @@ def render_step_form(
         elif field_cfg.type == "select":
             options = _resolve_options(field_cfg.options_key)
             fields[field_cfg.name] = ui.select(
-                label=label, options=options, value=value or None
+                label=label, options=options, value=value if value in options else None
             ).props("outlined dense").classes("w-full")
         elif field_cfg.type == "file":
             uploaded = (files or {}).get(field_cfg.name)
@@ -132,7 +132,7 @@ def render_approval(
 def render_status_badge(status: str):
     """Render a colored status badge."""
     colors = {
-        "in_progress": "blue",
+        "in_progress": "primary",
         "completed": "positive",
         "rejected": "negative",
     }

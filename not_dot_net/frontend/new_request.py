@@ -27,6 +27,7 @@ def render(user: User):
 
                 form_container = ui.column().classes("w-full mt-2")
                 form_container.set_visibility(False)
+                form_container.on("click.stop", js_handler="() => {}")
 
                 first_step = wf_config.steps[0]
 

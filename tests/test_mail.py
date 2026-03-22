@@ -4,30 +4,30 @@ from not_dot_net.backend.mail import send_mail
 from not_dot_net.config import MailSettings
 
 
-async def test_dev_mode_logs_to_console(capsys):
+async def test_dev_mode_logs_to_console(caplog):
     settings = MailSettings(dev_mode=True)
-    await send_mail(
-        to="user@example.com",
-        subject="Test Subject",
-        body_html="<p>Hello</p>",
-        mail_settings=settings,
-    )
-    captured = capsys.readouterr()
-    assert "user@example.com" in captured.out
-    assert "Test Subject" in captured.out
+    with caplog.at_level("INFO", logger="not_dot_net.mail"):
+        await send_mail(
+            to="user@example.com",
+            subject="Test Subject",
+            body_html="<p>Hello</p>",
+            mail_settings=settings,
+        )
+    assert "user@example.com" in caplog.text
+    assert "Test Subject" in caplog.text
 
 
-async def test_dev_catch_all_redirects(capsys):
+async def test_dev_catch_all_redirects(caplog):
     settings = MailSettings(dev_mode=True, dev_catch_all="catch@example.com")
-    await send_mail(
-        to="real@example.com",
-        subject="Test",
-        body_html="<p>Hi</p>",
-        mail_settings=settings,
-    )
-    captured = capsys.readouterr()
-    assert "catch@example.com" in captured.out
-    assert "real@example.com" in captured.out  # original still mentioned
+    with caplog.at_level("INFO", logger="not_dot_net.mail"):
+        await send_mail(
+            to="real@example.com",
+            subject="Test",
+            body_html="<p>Hi</p>",
+            mail_settings=settings,
+        )
+    assert "catch@example.com" in caplog.text
+    assert "real@example.com" in caplog.text  # original still mentioned
 
 
 async def test_production_mode_calls_aiosmtplib():

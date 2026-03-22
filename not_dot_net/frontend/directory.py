@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+from datetime import date
 
 from nicegui import ui
 
@@ -73,12 +74,30 @@ def render(current_user: User):
     ui.timer(0, refresh, once=True)
 
 
+def _format_duration(person: User) -> str:
+    """Human-readable duration string for a person."""
+    if not person.start_date:
+        return ""
+    today = date.today()
+    if person.end_date:
+        return f"{person.start_date} → {person.end_date}"
+    delta = today - person.start_date
+    years = delta.days // 365
+    if years >= 1:
+        return f"{t('since')} {person.start_date} ({years}y)"
+    months = delta.days // 30
+    if months >= 1:
+        return f"{t('since')} {person.start_date} ({months}mo)"
+    return f"{t('since')} {person.start_date}"
+
+
 def _person_card(person: User, current_user: User, state: dict):
     display_name = person.full_name or person.email
     search_text = " ".join(
         s.lower() for s in [
             person.full_name or "", person.email,
             person.team or "", person.office or "",
+            person.title or "", person.employment_status or "",
         ]
     )
 
@@ -95,6 +114,9 @@ def _person_card(person: User, current_user: User, state: dict):
                     ui.label(person.team).classes("text-sm text-gray-500")
                 if person.office:
                     ui.label(f"{t('office')} {person.office}").classes("text-sm text-gray-500")
+                duration = _format_duration(person)
+                if duration:
+                    ui.label(duration).classes("text-xs text-gray-400")
 
         detail_container = ui.column().classes("w-full mt-2")
         detail_container.on("click.stop", js_handler="() => {}")
@@ -130,6 +152,10 @@ def _render_detail(container, person: User, current_user: User, state: dict):
             ui.label(f"{t('status')}: {person.employment_status}").classes("text-sm")
         if person.title:
             ui.label(f"{t('title')}: {person.title}").classes("text-sm")
+        if person.start_date:
+            ui.label(f"{t('start_date')}: {person.start_date}").classes("text-sm")
+        if person.end_date:
+            ui.label(f"{t('end_date')}: {person.end_date}").classes("text-sm")
 
         if is_own or is_admin:
             ui.button(t("edit"), icon="edit", on_click=lambda: _render_edit(
@@ -182,6 +208,12 @@ def _render_edit(container, person: User, current_user: User, state: dict):
             fields["title"] = ui.input(
                 t("title"), value=person.title or ""
             ).props("outlined dense")
+            fields["start_date"] = ui.input(
+                t("start_date"), value=str(person.start_date) if person.start_date else ""
+            ).props("outlined dense")
+            fields["end_date"] = ui.input(
+                t("end_date"), value=str(person.end_date) if person.end_date else ""
+            ).props("outlined dense")
 
         fields["phone"] = ui.input(
             t("phone"), value=person.phone or ""
@@ -191,7 +223,12 @@ def _render_edit(container, person: User, current_user: User, state: dict):
         ).props("outlined dense")
 
         async def save():
-            updates = {k: (v.value or None) for k, v in fields.items()}
+            updates = {}
+            for k, v in fields.items():
+                val = v.value or None
+                if k in ("start_date", "end_date") and val:
+                    val = date.fromisoformat(val)
+                updates[k] = val
             await _update_user(person.id, updates)
             ui.notify(t("saved"), color="positive")
             people = await _load_people()

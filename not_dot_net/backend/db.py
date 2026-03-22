@@ -1,9 +1,10 @@
 from collections.abc import AsyncGenerator
+from datetime import date
 from enum import Enum as PyEnum
 
 from fastapi import Depends
 from fastapi_users.db import SQLAlchemyBaseUserTableUUID, SQLAlchemyUserDatabase
-from sqlalchemy import Enum as SAEnum
+from sqlalchemy import Date, Enum as SAEnum
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -34,6 +35,8 @@ class User(SQLAlchemyBaseUserTableUUID, Base):
     team: Mapped[str | None] = mapped_column(default=None)
     title: Mapped[str | None] = mapped_column(default=None)
     employment_status: Mapped[str | None] = mapped_column(default=None)
+    start_date: Mapped[date | None] = mapped_column(Date, nullable=True, default=None)
+    end_date: Mapped[date | None] = mapped_column(Date, nullable=True, default=None)
     role: Mapped[Role] = mapped_column(
         SAEnum(Role), default=Role.MEMBER
     )
@@ -53,6 +56,8 @@ async def create_db_and_tables() -> None:
     if _engine is None:
         raise RuntimeError("DB not initialized — call init_db() first")
     import not_dot_net.backend.workflow_models  # noqa: F401 — register models with Base
+    import not_dot_net.backend.booking_models  # noqa: F401 — register models with Base
+    import not_dot_net.backend.audit  # noqa: F401 — register models with Base
     async with _engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 

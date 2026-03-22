@@ -1,0 +1,37 @@
+"""Booking system models — resources and reservations."""
+
+import uuid
+from datetime import date, datetime
+
+from sqlalchemy import Date, ForeignKey, String, Text, UniqueConstraint, func
+from sqlalchemy.orm import Mapped, MappedAsDataclass, mapped_column
+
+from not_dot_net.backend.db import Base
+
+
+class Resource(MappedAsDataclass, Base, kw_only=True):
+    __tablename__ = "resource"
+
+    name: Mapped[str] = mapped_column(String(200))
+    resource_type: Mapped[str] = mapped_column(String(50))  # desktop, laptop
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default_factory=uuid.uuid4)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True, default=None)
+    location: Mapped[str | None] = mapped_column(String(200), nullable=True, default=None)
+    active: Mapped[bool] = mapped_column(default=True)
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now(), default=None)
+
+
+class Booking(MappedAsDataclass, Base, kw_only=True):
+    __tablename__ = "booking"
+
+    resource_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("resource.id", ondelete="CASCADE")
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("user.id", ondelete="CASCADE")
+    )
+    start_date: Mapped[date] = mapped_column(Date)
+    end_date: Mapped[date] = mapped_column(Date)
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default_factory=uuid.uuid4)
+    note: Mapped[str | None] = mapped_column(Text, nullable=True, default=None)
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now(), default=None)

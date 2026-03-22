@@ -1,10 +1,13 @@
 """Async mail sending with dev-mode logging."""
 
+import logging
 from email.message import EmailMessage
 
 import aiosmtplib
 
 from not_dot_net.config import MailSettings
+
+logger = logging.getLogger("not_dot_net.mail")
 
 
 async def send_mail(
@@ -18,9 +21,7 @@ async def send_mail(
         effective_to = mail_settings.dev_catch_all
 
     if mail_settings.dev_mode:
-        print(f"[MAIL dev] To: {effective_to} (original: {to})")
-        print(f"[MAIL dev] Subject: {subject}")
-        print(f"[MAIL dev] Body: {body_html[:200]}")
+        logger.info("[MAIL dev] To: %s (original: %s) Subject: %s", effective_to, to, subject)
         return
 
     msg = EmailMessage()

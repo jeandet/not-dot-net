@@ -1,3 +1,4 @@
+import logging
 import os
 from typing import Optional
 
@@ -14,6 +15,11 @@ from not_dot_net.frontend.workflow_token import setup as setup_token
 
 
 def create_app(config_file: str | None = None, _seed_fake_users: bool = False):
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s — %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
     settings = init_settings(config_file)
     init_db(settings.backend.database_url)
 

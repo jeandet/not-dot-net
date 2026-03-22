@@ -132,6 +132,7 @@ class Settings(BaseSettings):
                         FieldConfig(name="role_status", type="select", options_key="roles", required=True),
                         FieldConfig(name="team", type="select", options_key="teams", required=True),
                         FieldConfig(name="start_date", type="date", required=True),
+                        FieldConfig(name="end_date", type="date", required=False, label="End Date"),
                         FieldConfig(name="note", type="textarea", required=False),
                     ],
                     actions=["submit"],

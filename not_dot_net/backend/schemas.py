@@ -1,4 +1,5 @@
 import uuid
+from datetime import date
 
 from fastapi_users import schemas
 
@@ -12,6 +13,8 @@ class UserRead(schemas.BaseUser[uuid.UUID]):
     team: str | None = None
     title: str | None = None
     employment_status: str | None = None
+    start_date: date | None = None
+    end_date: date | None = None
     role: Role = Role.MEMBER
 
 
@@ -26,4 +29,6 @@ class UserUpdate(schemas.BaseUserUpdate):
     team: str | None = None
     title: str | None = None
     employment_status: str | None = None
+    start_date: date | None = None
+    end_date: date | None = None
     role: Role | None = None
