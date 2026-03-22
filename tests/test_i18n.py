@@ -36,7 +36,7 @@ def test_t_with_placeholder():
 
 
 def test_fr_translations_are_not_english():
-    shared_allowed = {"LPP Intranet", "Type", "Permanent", "Description", "Note", "Action"}
+    shared_allowed = {"LPP Intranet", "Type", "Permanent", "Description", "Note", "Action", "CPU", "RAM", "GPU"}
     for key in TRANSLATIONS["en"]:
         en = TRANSLATIONS["en"][key]
         fr = TRANSLATIONS["fr"][key]

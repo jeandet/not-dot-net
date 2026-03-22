@@ -17,6 +17,12 @@ from not_dot_net.backend.booking_service import (
     list_resources,
     update_resource,
 )
+from not_dot_net.backend.app_settings import (
+    get_os_choices,
+    get_software_tags,
+    set_os_choices,
+    set_software_tags,
+)
 from not_dot_net.backend.db import User, get_async_session
 from not_dot_net.backend.roles import Role, has_role
 from not_dot_net.config import get_settings
@@ -67,6 +73,8 @@ async def _render_bookings(container, user: User, filter_range=None):
                                 ui.label(
                                     f"{bk.start_date} → {bk.end_date}"
                                 ).classes("text-sm text-grey-8")
+                                if bk.os_choice:
+                                    ui.label(bk.os_choice).classes("text-xs text-grey")
                                 if bk.note:
                                     ui.label(bk.note).classes("text-xs text-grey")
 
@@ -105,14 +113,16 @@ async def _render_bookings(container, user: User, filter_range=None):
             with ui.menu() as menu:
                 date_picker = ui.date(default_range).props("range")
 
+            all_sites = [t("all_types")] + sites
             site_select = ui.select(
-                options={None: t("all_types")} | {s: s for s in sites},
-                value=None, label=t("resource_location"),
+                options=all_sites, value=all_sites[0],
+                label=t("resource_location"),
             ).props("outlined dense").classes("min-w-[150px]")
 
+            all_types = [t("all_types")] + RESOURCE_TYPES
             type_select = ui.select(
-                options={None: t("all_types")} | {rt: t(rt) for rt in RESOURCE_TYPES},
-                value=None, label=t("resource_type"),
+                options=all_types, value=all_types[0],
+                label=t("resource_type"),
             ).props("outlined dense").classes("min-w-[150px]")
 
         resource_area = ui.column().classes("w-full")
@@ -126,8 +136,8 @@ async def _render_bookings(container, user: User, filter_range=None):
             menu.close()
             await _render_resource_list(
                 container, resource_area, resources, user, is_admin, val,
-                site_filter=site_select.value,
-                type_filter=type_select.value,
+                site_filter=site_select.value if site_select.value in sites else None,
+                type_filter=type_select.value if type_select.value in RESOURCE_TYPES else None,
             )
 
         date_picker.on_value_change(lambda _: apply_filter())
@@ -138,10 +148,15 @@ async def _render_bookings(container, user: User, filter_range=None):
         with ui.row().classes("items-center justify-between w-full mb-2"):
             ui.label(t("resources")).classes("text-h6")
             if is_admin:
-                ui.button(
-                    t("add_resource"), icon="add",
-                    on_click=lambda: _show_resource_dialog(container, user),
-                ).props("flat color=primary")
+                with ui.row().classes("gap-2"):
+                    ui.button(
+                        t("add_resource"), icon="add",
+                        on_click=lambda: _show_resource_dialog(container, user),
+                    ).props("flat color=primary")
+                    ui.button(
+                        t("manage_software"), icon="settings",
+                        on_click=lambda: _show_software_dialog(container, user),
+                    ).props("flat color=primary")
 
         if not resources:
             ui.label(t("no_bookings")).classes("text-grey")
@@ -233,6 +248,17 @@ async def _resource_card(outer_container, res, user, is_admin, state,
                     ui.icon(icon, size="sm").classes("text-grey-7")
                     ui.label(res.name).classes("font-bold")
                 ui.label(t(res.resource_type)).classes("text-xs text-grey")
+                if res.specs:
+                    specs = res.specs
+                    parts = []
+                    if specs.get("cpu"):
+                        parts.append(specs["cpu"])
+                    if specs.get("ram"):
+                        parts.append(specs["ram"])
+                    if specs.get("gpu") and specs["gpu"] != "—":
+                        parts.append(specs["gpu"])
+                    if parts:
+                        ui.label(" · ".join(parts)).classes("text-xs text-grey-6")
             ui.badge(
                 t("available") if is_available else t("booked_by"),
                 color="positive" if is_available else "orange",
@@ -266,6 +292,14 @@ async def _render_resource_detail(outer_container, res, user, is_admin, book_ran
     if res.description:
         ui.label(res.description).classes("text-sm text-grey-8 mb-2")
 
+    # Specs
+    if res.specs:
+        with ui.row().classes("gap-4 text-caption mb-2"):
+            for key in ("cpu", "ram", "hdd", "gpu"):
+                val = res.specs.get(key)
+                if val and val != "—":
+                    ui.label(f"{t(key)}: {val}")
+
     # Upcoming bookings
     today = date.today()
     bookings = await list_bookings_for_resource(
@@ -277,11 +311,16 @@ async def _render_resource_detail(outer_container, res, user, is_admin, book_ran
         for bk in bookings:
             owner_name = await _get_user_name(bk.user_id)
             is_own = bk.user_id == user.id
-            with ui.row().classes("items-center gap-2 w-full"):
+            with ui.row().classes("items-center gap-2 w-full flex-wrap"):
                 ui.label(
                     f"{bk.start_date} → {bk.end_date}"
                 ).classes("text-sm")
                 ui.label(owner_name).classes("text-sm text-grey")
+                if bk.os_choice:
+                    ui.badge(bk.os_choice, color="blue-grey").props("dense")
+                if bk.software_tags:
+                    for sw in bk.software_tags:
+                        ui.badge(sw, color="grey").props("dense outline")
                 if is_own or is_admin:
                     async def do_cancel(b=bk):
                         try:
@@ -300,8 +339,47 @@ async def _render_resource_detail(outer_container, res, user, is_admin, book_ran
     ui.label(t("book")).classes("text-subtitle2 mt-3 mb-1")
     default_range = book_range or {"from": str(today), "to": str(today + timedelta(days=1))}
     range_label = f"{default_range['from']} → {default_range['to']}"
+
+    os_choices = await get_os_choices()
+    all_software = await get_software_tags()
+
+    ui.label(range_label).classes("text-sm text-grey-8")
     with ui.row().classes("items-center gap-2"):
-        ui.label(range_label).classes("text-sm text-grey-8")
+        ui.label(t("os")).classes("text-sm")
+        os_select = ui.toggle(os_choices, value=os_choices[0]).props("dense")
+
+    chip_state = {"selected": set()}
+    sw_container = ui.row().classes("flex-wrap gap-1")
+
+    def _rebuild_chips(os_name):
+        sw_container.clear()
+        chip_state["selected"] = set()
+        tags = all_software.get(os_name, [])
+        with sw_container:
+            for tag in tags:
+                chip = ui.chip(tag, color="grey-3", text_color="grey-8").props("dense")
+
+                def toggle(_, t=tag, c=chip):
+                    if t in chip_state["selected"]:
+                        chip_state["selected"].discard(t)
+                        c._props["color"] = "grey-3"
+                        c._props["text-color"] = "grey-8"
+                    else:
+                        chip_state["selected"].add(t)
+                        c._props["color"] = "primary"
+                        c._props["text-color"] = "white"
+                    c.update()
+
+                chip.on_click(toggle)
+
+    _rebuild_chips(os_choices[0])
+
+    def on_os_change(e):
+        _rebuild_chips(e.value)
+
+    os_select.on_value_change(on_os_change)
+
+    with ui.row().classes("items-center gap-2"):
         note_input = ui.input(t("note")).props("outlined dense")
 
         async def do_book():
@@ -311,8 +389,14 @@ async def _render_resource_detail(outer_container, res, user, is_admin, book_ran
             except (ValueError, KeyError):
                 ui.notify("Invalid date range", color="negative")
                 return
+            selected_sw = list(chip_state["selected"])
             try:
-                await create_booking(res.id, user.id, s, e, note=note_input.value)
+                await create_booking(
+                    res.id, user.id, s, e,
+                    note=note_input.value,
+                    os_choice=os_select.value,
+                    software_tags=selected_sw or None,
+                )
             except (BookingConflictError, BookingValidationError) as err:
                 ui.notify(str(err), color="negative")
                 return
@@ -374,6 +458,15 @@ def _show_resource_dialog(outer_container, user, resource=None):
             value=resource.description or "" if editing else "",
         ).props("outlined dense").classes("w-full")
 
+        # Specs fields
+        ui.label(t("specs")).classes("text-subtitle2 mt-2")
+        existing_specs = (resource.specs or {}) if editing else {}
+        spec_inputs = {}
+        for key in ("cpu", "ram", "hdd", "gpu"):
+            spec_inputs[key] = ui.input(
+                t(key), value=existing_specs.get(key, ""),
+            ).props("outlined dense").classes("w-full")
+
         with ui.row().classes("justify-end gap-2 mt-2"):
             ui.button(t("cancel"), on_click=dialog.close).props("flat")
 
@@ -381,6 +474,7 @@ def _show_resource_dialog(outer_container, user, resource=None):
                 if not name_input.value.strip():
                     ui.notify(t("required_field"), color="negative")
                     return
+                specs = {k: v.value.strip() for k, v in spec_inputs.items() if v.value.strip()}
                 try:
                     if editing:
                         await update_resource(
@@ -389,6 +483,7 @@ def _show_resource_dialog(outer_container, user, resource=None):
                             resource_type=type_select.value,
                             location=location_select.value,
                             description=desc_input.value.strip() or None,
+                            specs=specs or None,
                         )
                         ui.notify(t("resource_updated"), color="positive")
                     else:
@@ -397,6 +492,7 @@ def _show_resource_dialog(outer_container, user, resource=None):
                             resource_type=type_select.value,
                             description=desc_input.value.strip(),
                             location=location_select.value,
+                            specs=specs or None,
                         )
                         ui.notify(t("resource_created"), color="positive")
                 except Exception as e:
@@ -408,3 +504,121 @@ def _show_resource_dialog(outer_container, user, resource=None):
             ui.button(t("save"), on_click=do_save).props("color=primary")
 
     dialog.open()
+
+
+def _show_software_dialog(outer_container, user):
+    """Admin dialog to manage OS choices and per-OS software tags."""
+
+    async def _load_and_render():
+        os_list = await get_os_choices()
+        sw_tags = await get_software_tags()
+        _render_dialog(os_list, dict(sw_tags))
+
+    def _render_dialog(os_list, sw_tags):
+        state = {"os_list": list(os_list), "sw_tags": sw_tags, "active_os": os_list[0] if os_list else None}
+
+        with ui.dialog() as dialog, ui.card().classes("w-[600px]"):
+            ui.label(t("manage_software")).classes("text-h6")
+
+            # --- OS list ---
+            ui.label(t("os")).classes("text-subtitle2 mt-2")
+            os_container = ui.row().classes("flex-wrap gap-1")
+
+            sw_label = ui.label("").classes("text-subtitle2 mt-3")
+            sw_container = ui.column().classes("w-full gap-1")
+
+            def _render_os_chips():
+                os_container.clear()
+                with os_container:
+                    for os_name in state["os_list"]:
+                        is_active = os_name == state["active_os"]
+                        chip = ui.chip(
+                            os_name,
+                            color="primary" if is_active else "grey-3",
+                            text_color="white" if is_active else "grey-8",
+                            removable=True,
+                        ).props("dense")
+
+                        def select_os(_, name=os_name):
+                            state["active_os"] = name
+                            _render_os_chips()
+                            _render_sw_list()
+
+                        chip.on_click(select_os)
+
+                        def remove_os(_, name=os_name):
+                            state["os_list"].remove(name)
+                            state["sw_tags"].pop(name, None)
+                            if state["active_os"] == name:
+                                state["active_os"] = state["os_list"][0] if state["os_list"] else None
+                            _render_os_chips()
+                            _render_sw_list()
+
+                        chip.on_value_change(lambda e, name=os_name: remove_os(e, name) if not e.value else None)
+
+                    # Add OS input
+                    new_os = ui.input(placeholder=t("add_os")).props("outlined dense").classes("w-28")
+
+                    def add_os():
+                        name = new_os.value.strip()
+                        if name and name not in state["os_list"]:
+                            state["os_list"].append(name)
+                            state["sw_tags"][name] = []
+                            state["active_os"] = name
+                            new_os.value = ""
+                            _render_os_chips()
+                            _render_sw_list()
+
+                    new_os.on("keydown.enter", lambda _: add_os())
+
+            def _render_sw_list():
+                sw_container.clear()
+                active = state["active_os"]
+                if not active:
+                    sw_label.text = ""
+                    return
+                sw_label.text = f"{t('software')} — {active}"
+                tags = state["sw_tags"].get(active, [])
+                with sw_container:
+                    with ui.row().classes("flex-wrap gap-1"):
+                        for tag in tags:
+                            chip = ui.chip(tag, color="primary", text_color="white", removable=True).props("dense")
+
+                            def remove_sw(_, sw=tag):
+                                state["sw_tags"][state["active_os"]].remove(sw)
+                                _render_sw_list()
+
+                            chip.on_value_change(lambda e, sw=tag: remove_sw(e, sw) if not e.value else None)
+
+                    # Add software input
+                    with ui.row().classes("items-center gap-1"):
+                        new_sw = ui.input(placeholder=t("add_software")).props("outlined dense").classes("w-48")
+
+                        def add_sw():
+                            name = new_sw.value.strip()
+                            active = state["active_os"]
+                            if name and active and name not in state["sw_tags"].get(active, []):
+                                state["sw_tags"].setdefault(active, []).append(name)
+                                new_sw.value = ""
+                                _render_sw_list()
+
+                        new_sw.on("keydown.enter", lambda _: add_sw())
+
+            _render_os_chips()
+            _render_sw_list()
+
+            # --- Save / Cancel ---
+            with ui.row().classes("justify-end gap-2 mt-3"):
+                ui.button(t("cancel"), on_click=dialog.close).props("flat")
+
+                async def do_save():
+                    await set_os_choices(state["os_list"])
+                    await set_software_tags(state["sw_tags"])
+                    ui.notify(t("settings_saved"), color="positive")
+                    dialog.close()
+
+                ui.button(t("save"), on_click=do_save).props("color=primary")
+
+        dialog.open()
+
+    ui.timer(0, _load_and_render, once=True)

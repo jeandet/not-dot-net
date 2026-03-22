@@ -85,6 +85,12 @@ class Settings(BaseSettings):
         "Administration",
     ]
     sites: list[str] = ["Palaiseau", "Jussieu"]
+    os_choices: list[str] = ["Windows", "Ubuntu", "Fedora"]
+    software_tags: dict[str, list[str]] = {
+        "Windows": ["Office 365", "MATLAB", "IDL", "Python (Anaconda)", "LabVIEW", "SolidWorks"],
+        "Ubuntu": ["Python", "MATLAB", "IDL", "GCC", "LaTeX", "Docker"],
+        "Fedora": ["Python", "MATLAB", "IDL", "GCC", "LaTeX", "Docker", "Toolbox"],
+    }
     # "mail_config" alias avoids collision with MAIL env var (/var/spool/mail/...)
     # YAML key is "mail_config:", not "mail:"
     mail: MailSettings = Field(default_factory=MailSettings, alias="mail_config")

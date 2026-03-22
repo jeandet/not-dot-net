@@ -33,7 +33,8 @@ async def list_resources(active_only: bool = True) -> list[Resource]:
         return list(result.scalars().all())
 
 
-async def create_resource(name: str, resource_type: str, description: str = "", location: str = "") -> Resource:
+async def create_resource(name: str, resource_type: str, description: str = "",
+                          location: str = "", specs: dict | None = None) -> Resource:
     get_session = asynccontextmanager(get_async_session)
     async with get_session() as session:
         resource = Resource(
@@ -41,6 +42,7 @@ async def create_resource(name: str, resource_type: str, description: str = "", 
             resource_type=resource_type,
             description=description or None,
             location=location or None,
+            specs=specs,
         )
         session.add(resource)
         await session.commit()
@@ -114,6 +116,7 @@ async def list_bookings_for_user(user_id: uuid.UUID) -> list[Booking]:
 async def create_booking(
     resource_id: uuid.UUID, user_id: uuid.UUID,
     start_date: date, end_date: date, note: str = "",
+    os_choice: str | None = None, software_tags: list[str] | None = None,
 ) -> Booking:
     if start_date >= end_date:
         raise BookingValidationError("End date must be after start date")
@@ -140,6 +143,8 @@ async def create_booking(
             user_id=user_id,
             start_date=start_date,
             end_date=end_date,
+            os_choice=os_choice,
+            software_tags=software_tags or None,
             note=note or None,
         )
         session.add(booking)

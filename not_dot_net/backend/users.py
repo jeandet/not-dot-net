@@ -269,6 +269,7 @@ async def _seed_resources_and_bookings(users: list) -> None:
             resource_type=seed["type"],
             description=seed.get("description", ""),
             location=seed.get("location", ""),
+            specs=seed.get("specs"),
         )
         resources.append(res)
 
