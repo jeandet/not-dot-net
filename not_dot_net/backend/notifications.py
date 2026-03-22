@@ -1,0 +1,117 @@
+"""Event-driven notification engine for workflow transitions."""
+
+from not_dot_net.config import WorkflowConfig, NotificationRuleConfig
+
+
+# --- Email Templates ---
+
+TEMPLATES = {
+    "submit": {
+        "subject": "A new {workflow_label} request needs your attention",
+        "body": "<p>A new <strong>{workflow_label}</strong> request has been submitted"
+                " and requires your action.</p>",
+    },
+    "approve": {
+        "subject": "Your {workflow_label} request has been approved",
+        "body": "<p>Your <strong>{workflow_label}</strong> request has been approved.</p>",
+    },
+    "reject": {
+        "subject": "Your {workflow_label} request was rejected",
+        "body": "<p>Your <strong>{workflow_label}</strong> request was rejected.</p>",
+    },
+    "step_assigned": {
+        "subject": "Action required: {step_label} for {workflow_label}",
+        "body": "<p>You have a pending action on <strong>{workflow_label}</strong>: "
+                "{step_label}.</p>",
+    },
+    "token_link": {
+        "subject": "Please complete your information for {workflow_label}",
+        "body": "<p>Please complete your information by visiting the link below:</p>"
+                '<p><a href="{link}">{link}</a></p>',
+    },
+}
+
+
+def render_email(event: str, workflow_label: str, **kwargs) -> tuple[str, str]:
+    """Render an email template. Returns (subject, body_html)."""
+    template = TEMPLATES.get(event)
+    if template is None:
+        raise ValueError(f"No email template for event: {event}")
+    subject = template["subject"].format(workflow_label=workflow_label, **kwargs)
+    body = template["body"].format(workflow_label=workflow_label, **kwargs)
+    return subject, body
+
+
+def _matching_rules(
+    workflow: WorkflowConfig, event: str, step_key: str
+) -> list[NotificationRuleConfig]:
+    """Find notification rules that match this event + step."""
+    matched = []
+    for rule in workflow.notifications:
+        if rule.event != event:
+            continue
+        if rule.step is not None and rule.step != step_key:
+            continue
+        matched.append(rule)
+    return matched
+
+
+async def resolve_recipients(
+    notify_targets: list[str],
+    request,
+    get_user_email,
+    get_users_by_role,
+) -> list[str]:
+    """Resolve notification targets to email addresses."""
+    emails = set()
+    for target in notify_targets:
+        if target == "requester" and request.created_by:
+            email = await get_user_email(request.created_by)
+            if email:
+                emails.add(email)
+        elif target == "target_person" and request.target_email:
+            emails.add(request.target_email)
+        else:
+            users = await get_users_by_role(target)
+            for user in users:
+                emails.add(user.email)
+    return list(emails)
+
+
+async def notify(
+    request,
+    event: str,
+    step_key: str,
+    workflow: WorkflowConfig,
+    mail_settings,
+    get_user_email,
+    get_users_by_role,
+    base_url: str = "http://localhost:8088",
+) -> list[str]:
+    """Fire notifications for a workflow event. Returns list of emails sent to."""
+    from not_dot_net.backend.mail import send_mail
+
+    rules = _matching_rules(workflow, event, step_key)
+    if not rules:
+        return []
+
+    all_sent = []
+    for rule in rules:
+        recipients = await resolve_recipients(
+            rule.notify, request, get_user_email, get_users_by_role,
+        )
+
+        # Determine template
+        template_key = event
+        kwargs = {}
+        if event == "submit" and request.token:
+            template_key = "token_link"
+            kwargs["link"] = f"{base_url}/workflow/token/{request.token}"
+
+        subject, body = render_email(template_key, workflow.label, **kwargs)
+
+        for email in recipients:
+            await send_mail(email, subject, body, mail_settings)
+            all_sent.append(email)
+
+    return all_sent
