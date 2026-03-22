@@ -28,9 +28,10 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
     async def on_after_register(self, user: User, request: Request | None = None):
         print(f"User {user.id} has registered.")
 
-    async def on_after_update(self, user: User, update_dict: dict, request=None):
+    async def on_after_update(self, user: User, update_dict: dict, request: Request | None = None):
         if "role" in update_dict:
             user.is_superuser = (user.role == Role.ADMIN)
+            await self.user_db.update(user, {"is_superuser": user.role == Role.ADMIN})
 
 
 async def get_user_manager(
@@ -141,8 +142,9 @@ async def seed_fake_users() -> None:
                                 is_superuser=False,
                             )
                         )
-                        for field in ("full_name", "phone", "office", "team", "title", "employment_status", "role"):
+                        for field in ("full_name", "phone", "office", "team", "title", "employment_status"):
                             setattr(user, field, fake.get(field))
+                        user.role = Role(fake["role"])
                         session.add(user)
                         count += 1
                     except UserAlreadyExists:
