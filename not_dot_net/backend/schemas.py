@@ -4,7 +4,6 @@ from datetime import date
 from fastapi_users import schemas
 from pydantic import BaseModel
 
-from not_dot_net.backend.roles import Role
 
 
 class TokenResponse(BaseModel):
@@ -20,7 +19,7 @@ class UserRead(schemas.BaseUser[uuid.UUID]):
     employment_status: str | None = None
     start_date: date | None = None
     end_date: date | None = None
-    role: Role = Role.MEMBER
+    role: str = ""
 
 
 class UserCreate(schemas.BaseUserCreate):
@@ -36,4 +35,4 @@ class UserUpdate(schemas.BaseUserUpdate):
     employment_status: str | None = None
     start_date: date | None = None
     end_date: date | None = None
-    role: Role | None = None
+    role: str | None = None

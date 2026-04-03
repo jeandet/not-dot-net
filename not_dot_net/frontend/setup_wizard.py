@@ -4,7 +4,6 @@ from nicegui import ui
 from sqlalchemy import select
 
 from not_dot_net.backend.db import User, session_scope
-from not_dot_net.backend.roles import Role
 from not_dot_net.backend.users import ensure_default_admin
 from not_dot_net.config import org_config, OrgConfig
 
@@ -12,7 +11,7 @@ from not_dot_net.config import org_config, OrgConfig
 async def has_admin() -> bool:
     async with session_scope() as session:
         result = await session.execute(
-            select(User).where(User.role == Role.ADMIN).limit(1)
+            select(User).where(User.role == "admin").limit(1)
         )
         return result.scalar_one_or_none() is not None
 

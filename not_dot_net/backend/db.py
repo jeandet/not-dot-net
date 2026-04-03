@@ -5,7 +5,7 @@ from enum import Enum as PyEnum
 
 from fastapi import Depends
 from fastapi_users.db import SQLAlchemyBaseUserTableUUID, SQLAlchemyUserDatabase
-from sqlalchemy import Date, Enum as SAEnum
+from sqlalchemy import Date, Enum as SAEnum, String
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -42,8 +42,8 @@ class User(SQLAlchemyBaseUserTableUUID, Base):
     employment_status: Mapped[str | None] = mapped_column(default=None)
     start_date: Mapped[date | None] = mapped_column(Date, nullable=True, default=None)
     end_date: Mapped[date | None] = mapped_column(Date, nullable=True, default=None)
-    role: Mapped[Role] = mapped_column(
-        SAEnum(Role), default=Role.MEMBER
+    role: Mapped[str] = mapped_column(
+        String(50), default=""
     )
 
 

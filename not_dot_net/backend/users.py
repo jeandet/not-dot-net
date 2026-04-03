@@ -15,7 +15,6 @@ from fastapi_users.authentication import (
 from fastapi_users.db import SQLAlchemyUserDatabase
 
 from not_dot_net.backend.db import User, get_user_db
-from not_dot_net.backend.roles import Role
 from not_dot_net.backend.secrets import AppSecrets
 
 
@@ -47,8 +46,8 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
 
     async def on_after_update(self, user: User, update_dict: dict, request: Request | None = None):
         if "role" in update_dict:
-            user.is_superuser = (user.role == Role.ADMIN)
-            await self.user_db.update(user, {"is_superuser": user.role == Role.ADMIN})
+            user.is_superuser = (user.role == "admin")
+            await self.user_db.update(user, {"is_superuser": user.role == "admin"})
 
 
 async def get_user_manager(
@@ -107,7 +106,7 @@ async def ensure_default_admin(email: str, password: str) -> None:
                             is_superuser=True,
                         )
                     )
-                    user.role = Role.ADMIN
+                    user.role = "admin"
                     session.add(user)
                     await session.commit()
                     logger.info("Default admin '%s' created", email)
