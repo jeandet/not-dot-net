@@ -3,7 +3,7 @@
 from nicegui import ui
 
 from not_dot_net.backend.db import User
-from not_dot_net.backend.roles import Role, has_role
+from not_dot_net.backend.permissions import has_permissions
 from not_dot_net.backend.workflow_service import (
     list_user_requests,
     list_all_requests,
@@ -61,7 +61,7 @@ _STATUS_COLORS = {
 async def _render_my_requests(container, user: User):
     container.clear()
 
-    if has_role(user, Role.ADMIN):
+    if await has_permissions(user, "view_audit_log"):
         requests = await list_all_requests()
     else:
         requests = await list_user_requests(user.id)
@@ -262,7 +262,7 @@ async def _render_actionable(container, user: User):
 async def _render_action_form(outer_container, user, req, step_config, wf):
     async def handle_approve(comment, r=req):
         try:
-            await submit_step(r.id, user.id, "approve", comment=comment)
+            await submit_step(r.id, user.id, "approve", comment=comment, actor_user=user)
         except Exception as e:
             ui.notify(str(e), color="negative")
             return
@@ -271,7 +271,7 @@ async def _render_action_form(outer_container, user, req, step_config, wf):
 
     async def handle_reject(comment, r=req):
         try:
-            await submit_step(r.id, user.id, "reject", comment=comment)
+            await submit_step(r.id, user.id, "reject", comment=comment, actor_user=user)
         except Exception as e:
             ui.notify(str(e), color="negative")
             return
@@ -280,7 +280,7 @@ async def _render_action_form(outer_container, user, req, step_config, wf):
 
     async def handle_submit(data, r=req):
         try:
-            await submit_step(r.id, user.id, "submit", data=data)
+            await submit_step(r.id, user.id, "submit", data=data, actor_user=user)
         except Exception as e:
             ui.notify(str(e), color="negative")
             return

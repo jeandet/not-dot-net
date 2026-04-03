@@ -8,7 +8,7 @@ from not_dot_net.backend.db import User, session_scope, get_user_db
 from not_dot_net.backend.schemas import UserUpdate
 from not_dot_net.backend.users import get_user_manager
 from not_dot_net.frontend.i18n import t
-from not_dot_net.backend.permissions import permission
+from not_dot_net.backend.permissions import permission, has_permissions
 
 MANAGE_USERS = permission("manage_users", "Manage users", "Edit/delete users in directory")
 
@@ -119,7 +119,7 @@ def _person_card(person: User, current_user: User, state: dict):
         detail_container.set_visibility(False)
         state["details"][person.id] = detail_container
 
-        def toggle_expand():
+        async def toggle_expand():
             currently_expanded = state["expanded_id"]
             if currently_expanded == person.id:
                 detail_container.set_visibility(False)
@@ -129,15 +129,15 @@ def _person_card(person: User, current_user: User, state: dict):
                     state["details"][currently_expanded].set_visibility(False)
                 detail_container.set_visibility(True)
                 state["expanded_id"] = person.id
-                _render_detail(detail_container, person, current_user, state)
+                await _render_detail(detail_container, person, current_user, state)
 
         card.on("click", toggle_expand)
 
 
-def _render_detail(container, person: User, current_user: User, state: dict):
+async def _render_detail(container, person: User, current_user: User, state: dict):
     container.clear()
     is_own = person.id == current_user.id
-    is_admin = current_user.is_superuser
+    is_admin = await has_permissions(current_user, "manage_users")
 
     with container:
         ui.separator()
@@ -154,9 +154,10 @@ def _render_detail(container, person: User, current_user: User, state: dict):
             ui.label(f"{t('end_date')}: {person.end_date}").classes("text-sm")
 
         if is_own or is_admin:
-            ui.button(t("edit"), icon="edit", on_click=lambda: _render_edit(
-                container, person, current_user, state
-            )).props("flat dense")
+            async def do_edit():
+                await _render_edit(container, person, current_user, state)
+
+            ui.button(t("edit"), icon="edit", on_click=do_edit).props("flat dense")
 
         if is_admin and not is_own:
             display = person.full_name or person.email
@@ -180,9 +181,9 @@ def _render_detail(container, person: User, current_user: User, state: dict):
             )
 
 
-def _render_edit(container, person: User, current_user: User, state: dict):
+async def _render_edit(container, person: User, current_user: User, state: dict):
     container.clear()
-    is_admin = current_user.is_superuser
+    is_admin = await has_permissions(current_user, "manage_users")
 
     with container:
         ui.separator()
@@ -229,10 +230,12 @@ def _render_edit(container, person: User, current_user: User, state: dict):
             ui.notify(t("saved"), color="positive")
             people = await _load_people()
             updated = next((p for p in people if p.id == person.id), person)
-            _render_detail(container, updated, current_user, state)
+            await _render_detail(container, updated, current_user, state)
 
         with ui.row():
             ui.button(t("save"), on_click=save).props("flat dense color=primary")
-            ui.button(t("cancel"), on_click=lambda: _render_detail(
-                container, person, current_user, state
-            )).props("flat dense")
+
+            async def do_cancel():
+                await _render_detail(container, person, current_user, state)
+
+            ui.button(t("cancel"), on_click=do_cancel).props("flat dense")

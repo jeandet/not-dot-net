@@ -19,7 +19,7 @@ from not_dot_net.backend.booking_service import (
 )
 from not_dot_net.config import bookings_config
 from not_dot_net.backend.db import User, session_scope
-from not_dot_net.backend.roles import Role, has_role
+from not_dot_net.backend.permissions import has_permissions
 from not_dot_net.config import org_config
 from not_dot_net.frontend.i18n import t
 
@@ -43,7 +43,7 @@ async def _get_user_name(user_id: uuid.UUID) -> str:
 
 async def _render_bookings(container, user: User, filter_range=None):
     container.clear()
-    is_admin = has_role(user, Role.ADMIN)
+    is_admin = await has_permissions(user, "manage_bookings")
     resources = await list_resources(active_only=not is_admin)
     my_bookings = await list_bookings_for_user(user.id)
 
@@ -71,7 +71,7 @@ async def _render_bookings(container, user: User, filter_range=None):
 
                             async def do_cancel(b=bk):
                                 try:
-                                    await cancel_booking(b.id, user.id)
+                                    await cancel_booking(b.id, actor=user)
                                 except Exception as e:
                                     ui.notify(str(e), color="negative")
                                     return
@@ -317,7 +317,7 @@ async def _render_resource_detail(outer_container, res, user, is_admin, book_ran
                 if is_own or is_admin:
                     async def do_cancel(b=bk):
                         try:
-                            await cancel_booking(b.id, user.id, is_admin=is_admin)
+                            await cancel_booking(b.id, actor=user)
                         except Exception as e:
                             ui.notify(str(e), color="negative")
                             return
@@ -412,7 +412,7 @@ async def _render_resource_detail(outer_container, res, user, is_admin, book_ran
 
             async def do_delete():
                 try:
-                    await delete_resource(res.id)
+                    await delete_resource(res.id, actor=user)
                 except Exception as e:
                     ui.notify(str(e), color="negative")
                     return
@@ -474,6 +474,7 @@ async def _show_resource_dialog(outer_container, user, resource=None):
                     if editing:
                         await update_resource(
                             resource.id,
+                            actor=user,
                             name=name_input.value.strip(),
                             resource_type=type_select.value,
                             location=location_select.value,
@@ -488,6 +489,7 @@ async def _show_resource_dialog(outer_container, user, resource=None):
                             description=desc_input.value.strip(),
                             location=location_select.value,
                             specs=specs or None,
+                            actor=user,
                         )
                         ui.notify(t("resource_created"), color="positive")
                 except Exception as e:

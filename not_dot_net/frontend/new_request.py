@@ -3,7 +3,7 @@
 from nicegui import ui
 
 from not_dot_net.backend.db import User
-from not_dot_net.backend.roles import Role, has_role
+from not_dot_net.backend.permissions import has_permissions
 from not_dot_net.backend.workflow_service import create_request, workflows_config
 from not_dot_net.frontend.i18n import t
 from not_dot_net.frontend.workflow_step import render_step_form
@@ -18,7 +18,7 @@ async def render(user: User):
         ui.label(t("select_workflow")).classes("text-h6 mb-4")
 
         for wf_key, wf_config in cfg.workflows.items():
-            if not has_role(user, Role(wf_config.start_role)):
+            if not await has_permissions(user, "create_workflows"):
                 continue
 
             with ui.card().classes("w-full cursor-pointer") as card:
@@ -35,6 +35,7 @@ async def render(user: User):
                         workflow_type=key,
                         created_by=user.id,
                         data=data,
+                        actor=user,
                     )
                     ui.notify(t("request_created"), color="positive")
                     fc.set_visibility(False)

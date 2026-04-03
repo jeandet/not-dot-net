@@ -37,8 +37,7 @@ def test_org_config_has_teams():
 
 
 def test_user_default_role():
-    from not_dot_net.backend.roles import Role
     # SQLAlchemy INSERT defaults are not applied on Python object construction;
     # verify via column metadata.
-    assert User.__table__.c.role.default.arg == Role.MEMBER
+    assert User.__table__.c.role.default.arg == ""
 

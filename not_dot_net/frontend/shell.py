@@ -5,7 +5,7 @@ from fastapi.responses import RedirectResponse
 from nicegui import app, ui
 
 from not_dot_net.backend.db import User
-from not_dot_net.backend.roles import Role, has_role
+from not_dot_net.backend.permissions import has_permissions
 from not_dot_net.backend.users import current_active_user_optional
 from not_dot_net.frontend.admin_settings import render as render_settings
 from not_dot_net.frontend.audit_log import render as render_audit
@@ -32,8 +32,8 @@ def setup():
         audit_label = t("audit_log")
         settings_label = t("settings")
 
-        can_create = has_role(user, Role.STAFF)
-        is_admin = has_role(user, Role.ADMIN)
+        can_create = await has_permissions(user, "create_workflows")
+        is_admin = await has_permissions(user, "manage_settings")
 
         # Restore last active tab (fall back to dashboard)
         available_tabs = [dashboard_label, people_label, bookings_label]

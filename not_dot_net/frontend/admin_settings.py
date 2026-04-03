@@ -22,6 +22,8 @@ def _is_complex(schema: type[BaseModel]) -> bool:
 
 async def render(user):
     """Render the admin settings tab content."""
+    from not_dot_net.backend.permissions import check_permission
+    await check_permission(user, "manage_settings")
     registry = get_registry()
 
     for prefix, cfg_section in sorted(registry.items()):
