@@ -18,6 +18,7 @@ from not_dot_net.backend.auth import router as auth_router
 from not_dot_net.frontend.login import setup as setup_login
 from not_dot_net.frontend.shell import setup as setup_shell
 from not_dot_net.frontend.workflow_token import setup as setup_token
+from not_dot_net.frontend.setup_wizard import setup as setup_wizard
 
 
 DEV_DB_URL = "sqlite+aiosqlite:///./dev.db"
@@ -75,6 +76,9 @@ def create_app(
     setup_login()
     setup_shell()
     setup_token()
+
+    if not dev_mode:
+        setup_wizard()
 
 
 def main(
