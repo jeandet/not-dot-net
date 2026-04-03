@@ -55,3 +55,17 @@ roles_config = RolesConfigSection("roles", RolesConfig, label="Roles")
 # Register in the global config registry
 from not_dot_net.backend.app_config import _registry
 _registry["roles"] = roles_config
+
+
+async def seed_admin_permissions() -> None:
+    """Ensure the admin role has every registered permission."""
+    from not_dot_net.backend.permissions import get_permissions
+    cfg = await roles_config.get()
+    admin = cfg.roles.get("admin")
+    if admin is None:
+        return
+    all_perms = set(get_permissions().keys())
+    current = set(admin.permissions)
+    if not all_perms.issubset(current):
+        admin.permissions = sorted(current | all_perms)
+        await roles_config.set(cfg)

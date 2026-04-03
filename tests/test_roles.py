@@ -48,3 +48,25 @@ async def test_lockout_guard_restores_stripped_permissions():
 async def test_default_role_field():
     cfg = await roles_config.get()
     assert cfg.default_role == ""
+
+
+from not_dot_net.backend.roles import seed_admin_permissions
+
+
+async def test_seed_admin_gets_all_permissions():
+    # Import modules that declare permissions
+    import not_dot_net.backend.booking_service  # noqa: F401
+    import not_dot_net.backend.workflow_service  # noqa: F401
+    import not_dot_net.frontend.audit_log  # noqa: F401
+    import not_dot_net.frontend.directory  # noqa: F401
+
+    await seed_admin_permissions()
+    cfg = await roles_config.get()
+    admin = cfg.roles["admin"]
+    assert "manage_bookings" in admin.permissions
+    assert "create_workflows" in admin.permissions
+    assert "approve_workflows" in admin.permissions
+    assert "view_audit_log" in admin.permissions
+    assert "manage_users" in admin.permissions
+    assert "manage_roles" in admin.permissions
+    assert "manage_settings" in admin.permissions
