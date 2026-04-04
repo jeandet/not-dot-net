@@ -1,6 +1,5 @@
 import pytest
 from not_dot_net.backend.db import User, session_scope
-from not_dot_net.backend.roles import Role
 from sqlalchemy import select
 
 

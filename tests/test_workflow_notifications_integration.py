@@ -2,12 +2,11 @@ import pytest
 import uuid
 from unittest.mock import patch, AsyncMock
 from not_dot_net.backend.workflow_service import create_request, submit_step
-from not_dot_net.backend.roles import Role
 from not_dot_net.backend.db import User, get_async_session
 from contextlib import asynccontextmanager
 
 
-async def _create_user(email="staff@test.com", role=Role.STAFF) -> User:
+async def _create_user(email="staff@test.com", role="staff") -> User:
     get_session = asynccontextmanager(get_async_session)
     async with get_session() as session:
         user = User(id=uuid.uuid4(), email=email, hashed_password="x", role=role)
@@ -19,8 +18,8 @@ async def _create_user(email="staff@test.com", role=Role.STAFF) -> User:
 
 async def test_submit_step_fires_notifications():
     """After submitting the request step of vpn_access, directors should be notified."""
-    staff = await _create_user(email="staff@test.com", role=Role.STAFF)
-    director = await _create_user(email="director@test.com", role=Role.DIRECTOR)
+    staff = await _create_user(email="staff@test.com", role="staff")
+    director = await _create_user(email="director@test.com", role="director")
 
     req = await create_request(
         workflow_type="vpn_access",
@@ -36,8 +35,8 @@ async def test_submit_step_fires_notifications():
 
 
 async def test_approve_fires_notifications():
-    staff = await _create_user(email="staff@test.com", role=Role.STAFF)
-    director = await _create_user(email="director@test.com", role=Role.DIRECTOR)
+    staff = await _create_user(email="staff@test.com", role="staff")
+    director = await _create_user(email="director@test.com", role="director")
 
     req = await create_request(
         workflow_type="vpn_access",

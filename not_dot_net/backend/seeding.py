@@ -6,7 +6,6 @@ from contextlib import asynccontextmanager
 from datetime import date, timedelta
 
 from not_dot_net.backend.db import session_scope, get_user_db
-from not_dot_net.backend.roles import Role
 from not_dot_net.backend.schemas import UserCreate
 from not_dot_net.backend.users import get_user_manager
 
@@ -39,7 +38,7 @@ async def seed_fake_users() -> None:
                             user.start_date = date.fromisoformat(fake["start_date"])
                         if fake.get("end_date"):
                             user.end_date = date.fromisoformat(fake["end_date"])
-                        user.role = Role(fake["role"])
+                        user.role = fake["role"]
                         session.add(user)
                         created_users.append(user)
                         count += 1
@@ -61,8 +60,8 @@ async def _seed_fake_workflows(users: list) -> None:
 
     rng = _random.Random(42)
 
-    staff = [u for u in users if u.role in (Role.STAFF, Role.DIRECTOR, Role.ADMIN)]
-    directors = [u for u in users if u.role == Role.DIRECTOR]
+    staff = [u for u in users if u.role in ("staff", "director", "admin")]
+    directors = [u for u in users if u.role == "director"]
 
     if not staff:
         return

@@ -33,8 +33,6 @@ def create_user(
         from not_dot_net.backend.secrets import load_or_create
         from not_dot_net.backend.users import get_user_manager, init_user_secrets
         from not_dot_net.backend.schemas import UserCreate
-        from not_dot_net.backend.roles import Role
-
         database_url = os.environ.get("DATABASE_URL", "sqlite+aiosqlite:///./dev.db")
         dev_mode = "DATABASE_URL" not in os.environ
 
@@ -42,8 +40,6 @@ def create_user(
         secrets = load_or_create(Path(secrets_file), dev_mode=dev_mode)
         init_user_secrets(secrets)
         await create_db_and_tables()
-
-        user_role = Role(role)
 
         async with session_scope() as session:
             async with asynccontextmanager(get_user_db)(session) as user_db:
@@ -53,10 +49,10 @@ def create_user(
                             email=username,
                             password=password,
                             is_active=True,
-                            is_superuser=(user_role == Role.ADMIN),
+                            is_superuser=(role == "admin"),
                         )
                     )
-                    user.role = user_role
+                    user.role = role
                     session.add(user)
                     await session.commit()
                     print(f"User '{user.email}' created with role '{role}'.")

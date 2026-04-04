@@ -11,10 +11,9 @@ from not_dot_net.backend.workflow_service import (
 )
 from not_dot_net.backend.workflow_models import WorkflowRequest
 from not_dot_net.backend.db import User, session_scope
-from not_dot_net.backend.roles import Role
 
 
-async def _create_user(email="staff@test.com", role=Role.STAFF) -> User:
+async def _create_user(email="staff@test.com", role="staff") -> User:
     async with session_scope() as session:
         user = User(id=uuid.uuid4(), email=email, hashed_password="x", role=role)
         session.add(user)

@@ -7,8 +7,6 @@ from contextlib import asynccontextmanager
 from not_dot_net.backend.db import User, session_scope, get_user_db
 from not_dot_net.backend.users import get_user_manager
 from not_dot_net.backend.schemas import UserCreate
-from not_dot_net.backend.roles import Role
-
 
 async def _create_user_via_manager(email="test@test.com", password="Secret123!"):
     """Create a user through the UserManager (same path as the register endpoint)."""

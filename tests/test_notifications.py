@@ -9,7 +9,6 @@ from not_dot_net.config import (
     FieldConfig,
 )
 from not_dot_net.backend.mail import MailConfig
-from not_dot_net.backend.roles import Role
 
 
 # --- Fixtures ---
@@ -43,7 +42,7 @@ class FakeRequest:
 
 
 class FakeUser:
-    def __init__(self, email, role=Role.DIRECTOR, id=None):
+    def __init__(self, email, role="director", id=None):
         self.email = email
         self.role = role
         self.id = id or uuid.uuid4()

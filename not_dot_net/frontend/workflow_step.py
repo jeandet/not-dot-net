@@ -163,6 +163,7 @@ async def _resolve_options(options_key: str | None) -> list[str]:
         cfg = await org_config.get()
         return cfg.teams
     if options_key == "roles":
-        from not_dot_net.backend.roles import Role
-        return [r.value for r in Role]
+        from not_dot_net.backend.roles import roles_config
+        cfg = await roles_config.get()
+        return list(cfg.roles.keys())
     return []

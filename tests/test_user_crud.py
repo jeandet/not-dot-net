@@ -7,7 +7,6 @@ from contextlib import asynccontextmanager
 from not_dot_net.backend.db import User, session_scope, get_user_db
 from not_dot_net.backend.users import get_user_manager
 from not_dot_net.backend.schemas import UserCreate, UserUpdate
-from not_dot_net.backend.roles import Role
 
 
 async def _create_user(email="user@test.com", password="Password1!") -> User:
@@ -56,10 +55,10 @@ async def test_update_user_multiple_fields():
 
 async def test_update_user_role():
     user = await _create_user()
-    await _update_user(user.id, {"role": Role.ADMIN})
+    await _update_user(user.id, {"role": "admin"})
     async with session_scope() as session:
         refreshed = await session.get(User, user.id)
-        assert refreshed.role == Role.ADMIN
+        assert refreshed.role == "admin"
 
 
 async def test_delete_user():
