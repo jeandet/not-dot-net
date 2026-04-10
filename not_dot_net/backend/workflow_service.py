@@ -426,3 +426,52 @@ async def list_all_requests() -> list[WorkflowRequest]:
             .order_by(WorkflowRequest.created_at.desc())
         )
         return list(result.scalars().all())
+
+
+def compute_step_age_days(events: list[WorkflowEvent], current_step: str) -> int:
+    """Compute days since the last event that transitioned to the current step."""
+    if not events:
+        return 0
+    relevant = None
+    for ev in events:
+        if ev.step_key == current_step or ev.action in ("submit", "approve", "create"):
+            relevant = ev
+    if relevant is None:
+        relevant = events[-1]
+    if relevant.created_at is None:
+        return 0
+    now = datetime.now(timezone.utc)
+    created = relevant.created_at
+    if created.tzinfo is None:
+        created = created.replace(tzinfo=timezone.utc)
+    return (now - created).days
+
+
+async def get_actionable_count(user) -> int:
+    """Return count of requests where user can act. Lightweight version of list_actionable."""
+    cfg = await workflows_config.get()
+    filters = []
+    for wf_type, wf in cfg.workflows.items():
+        for step in wf.steps:
+            step_match = and_(
+                WorkflowRequest.type == wf_type,
+                WorkflowRequest.current_step == step.key,
+            )
+            if step.assignee_permission and await has_permissions(user, step.assignee_permission):
+                filters.append(step_match)
+            elif step.assignee == "target_person":
+                filters.append(and_(step_match, WorkflowRequest.target_email == user.email))
+            elif step.assignee == "requester":
+                filters.append(and_(step_match, WorkflowRequest.created_by == user.id))
+
+    if not filters:
+        return 0
+
+    from sqlalchemy import func as sa_func
+    async with session_scope() as session:
+        result = await session.execute(
+            select(sa_func.count())
+            .select_from(WorkflowRequest)
+            .where(WorkflowRequest.status == RequestStatus.IN_PROGRESS, or_(*filters))
+        )
+        return result.scalar_one()
