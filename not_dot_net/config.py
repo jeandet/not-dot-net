@@ -68,3 +68,13 @@ class BookingsConfig(BaseModel):
 
 
 bookings_config = section("bookings", BookingsConfig, label="Bookings")
+
+
+# --- DashboardConfig section ---
+
+class DashboardConfig(BaseModel):
+    urgency_fresh_days: int = 2
+    urgency_aging_days: int = 7
+
+
+dashboard_config = section("dashboard", DashboardConfig, label="Dashboard")
