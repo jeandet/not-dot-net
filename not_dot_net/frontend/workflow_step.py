@@ -140,6 +140,54 @@ def render_status_badge(status: str):
     ui.badge(t(status), color=color)
 
 
+def render_urgency_badge(age_days: int, fresh_days: int = 2, aging_days: int = 7):
+    """Render a colored urgency badge based on step age."""
+    if age_days < fresh_days:
+        color = "positive"
+    elif age_days < aging_days:
+        color = "warning"
+    else:
+        color = "negative"
+    ui.badge(f"⏱ {age_days}d", color=color).props("outline")
+
+
+def render_step_progress(current_step: str, status: str, steps: list):
+    """Render a named step progress bar.
+
+    Args:
+        current_step: key of the current step
+        status: request status (in_progress, completed, rejected)
+        steps: list of WorkflowStepConfig from the workflow
+    """
+    step_keys = [s.key for s in steps]
+    current_idx = step_keys.index(current_step) if current_step in step_keys else 0
+    is_completed = status == "completed"
+
+    with ui.row().classes("w-full gap-1 items-center"):
+        for i, step in enumerate(steps):
+            if is_completed or i < current_idx:
+                color = "bg-positive"
+            elif i == current_idx:
+                color = "bg-primary"
+            else:
+                color = "bg-grey-4"
+            height = "h-[6px]" if i == current_idx and not is_completed else "h-[4px]"
+            ui.element("div").classes(f"flex-1 rounded {color} {height}")
+
+    with ui.row().classes("w-full gap-1"):
+        for i, step in enumerate(steps):
+            if is_completed or i < current_idx:
+                label = f"✓ {step.key}"
+                cls = "text-[11px] text-grey flex-1"
+            elif i == current_idx:
+                label = f"● {step.key}"
+                cls = "text-[11px] text-primary font-semibold flex-1"
+            else:
+                label = step.key
+                cls = "text-[11px] text-grey-4 flex-1"
+            ui.label(label).classes(cls)
+
+
 def _collect_data(fields: dict) -> dict:
     """Collect values from UI fields."""
     return {
