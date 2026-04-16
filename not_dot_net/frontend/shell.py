@@ -123,12 +123,15 @@ def setup():
             from not_dot_net.backend.workflow_service import get_actionable_count
 
             async def update_badge():
-                count = await get_actionable_count(effective_user)
-                tab_text = f"{dashboard_label} ({count})" if count > 0 else dashboard_label
-                dashboard_tab._props["label"] = tab_text
-                dashboard_tab.update()
-                title = f"({count}) NotDotNet" if count > 0 else "NotDotNet"
-                await ui.run_javascript(f"document.title = {title!r}")
+                try:
+                    count = await get_actionable_count(effective_user)
+                    tab_text = f"{dashboard_label} ({count})" if count > 0 else dashboard_label
+                    dashboard_tab._props["label"] = tab_text
+                    dashboard_tab.update()
+                    title = f"({count}) NotDotNet" if count > 0 else "NotDotNet"
+                    await ui.run_javascript(f"document.title = {title!r}")
+                except RuntimeError:
+                    badge_timer.active = False
 
             badge_timer = ui.timer(60, update_badge)
             ui.timer(0, update_badge, once=True)

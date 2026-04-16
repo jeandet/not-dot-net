@@ -15,6 +15,7 @@ from not_dot_net.backend.users import (
 )
 from not_dot_net.backend.schemas import UserRead, UserUpdate
 from not_dot_net.backend.auth import router as auth_router
+import not_dot_net.backend.auth.ldap  # noqa: F401 — register LdapConfig section
 from not_dot_net.frontend.login import setup as setup_login, login_router
 from not_dot_net.frontend.shell import setup as setup_shell
 from not_dot_net.frontend.workflow_token import setup as setup_token

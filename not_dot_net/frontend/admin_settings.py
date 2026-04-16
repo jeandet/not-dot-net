@@ -1,5 +1,7 @@
 """Admin settings page — auto-generated forms from config registry."""
 
+from enum import Enum
+
 from nicegui import ui
 from pydantic import BaseModel, ValidationError
 from yaml import safe_dump, safe_load
@@ -8,6 +10,10 @@ from not_dot_net.backend.app_config import get_registry
 from not_dot_net.backend.audit import log_audit
 from not_dot_net.frontend.admin_roles import render as render_roles
 from not_dot_net.frontend.i18n import t
+
+
+def _is_enum(annotation) -> bool:
+    return isinstance(annotation, type) and issubclass(annotation, Enum)
 
 
 def _is_complex(schema: type[BaseModel]) -> bool:
@@ -54,6 +60,11 @@ async def _render_form(prefix, cfg_section, current, user):
 
         if annotation is bool:
             inputs[field_name] = ui.switch(field_name, value=value)
+        elif _is_enum(annotation):
+            options = {m.value: m.value for m in annotation}
+            inputs[field_name] = ui.select(
+                options, label=field_name, value=value,
+            ).classes("w-full")
         elif annotation is int:
             inputs[field_name] = ui.number(field_name, value=value)
         elif annotation is str:

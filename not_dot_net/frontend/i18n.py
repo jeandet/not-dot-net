@@ -13,9 +13,10 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "logout": "Logout",
         # Login
         "email": "Email",
+        "email_or_username": "Email or AD username",
         "password": "Password",
         "log_in": "Log in",
-        "invalid_credentials": "Invalid email or password",
+        "invalid_credentials": "Invalid credentials",
         "auth_error": "Auth server error",
         # Directory
         "search_placeholder": "Search by name, team, office, email...",
@@ -156,9 +157,10 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "logout": "Déconnexion",
         # Login
         "email": "E-mail",
+        "email_or_username": "E-mail ou identifiant AD",
         "password": "Mot de passe",
         "log_in": "Connexion",
-        "invalid_credentials": "E-mail ou mot de passe invalide",
+        "invalid_credentials": "Identifiants invalides",
         "auth_error": "Erreur du serveur d'authentification",
         # Directory
         "search_placeholder": "Rechercher par nom, équipe, bureau, e-mail...",

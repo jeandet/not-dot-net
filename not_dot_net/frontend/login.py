@@ -1,3 +1,4 @@
+import logging
 from html import escape as html_escape
 from typing import Optional
 from urllib.parse import urlparse
@@ -9,6 +10,8 @@ from nicegui import app, ui
 
 from not_dot_net.backend.users import get_user_manager, cookie_transport, get_jwt_strategy
 from not_dot_net.frontend.i18n import t
+
+logger = logging.getLogger("not_dot_net.login")
 
 login_router = APIRouter(tags=["auth"])
 
@@ -29,14 +32,19 @@ async def handle_login(
 ):
     form = await request.form()
     redirect_to = _safe_redirect(str(form.get("redirect_to", "/")))
+    username = str(form.get("username", ""))
+    password = str(form.get("password", ""))
 
+    # Try local auth first
     credentials = OAuth2PasswordRequestForm(
-        username=str(form.get("username", "")),
-        password=str(form.get("password", "")),
-        scope="",
-        grant_type="password",
+        username=username, password=password, scope="", grant_type="password",
     )
     user = await user_manager.authenticate(credentials)
+
+    # Fallback to LDAP/AD if local auth failed
+    if user is None or not user.is_active:
+        user = await _try_ldap_auth(username, password)
+
     if user is None or not user.is_active:
         return RedirectResponse("/login?error=1", status_code=303)
 
@@ -49,6 +57,42 @@ async def handle_login(
 
     await user_manager.on_after_login(user, request)
     return response
+
+
+async def _try_ldap_auth(username: str, password: str):
+    """Attempt LDAP auth. Auto-provisions user if configured. Returns User or None."""
+    from not_dot_net.backend.auth.ldap import (
+        USERNAME_RE, ldap_config, ldap_authenticate, get_ldap_connect,
+        provision_ldap_user,
+    )
+    from not_dot_net.backend.db import session_scope, get_user_db
+    from not_dot_net.backend.roles import roles_config
+    from contextlib import asynccontextmanager
+
+    if not USERNAME_RE.match(username):
+        return None
+
+    cfg = await ldap_config.get()
+    user_info = ldap_authenticate(username, password, cfg, get_ldap_connect())
+    if user_info is None:
+        return None
+
+    # Look up existing local user by email
+    async with session_scope() as session:
+        async with asynccontextmanager(get_user_db)(session) as user_db:
+            user = await user_db.get_by_email(user_info.email)
+
+    if user is not None:
+        return user if user.is_active else None
+
+    # Auto-provision
+    if not cfg.auto_provision:
+        logger.info("LDAP user '%s' has no local account and auto_provision is off", user_info.email)
+        return None
+
+    roles_cfg = await roles_config.get()
+    default_role = roles_cfg.default_role or ""
+    return await provision_ldap_user(user_info, default_role)
 
 
 def _safe_redirect(redirect_to: str) -> str:
@@ -80,8 +124,8 @@ def setup():
                     <form action="/auth/login" method="post"
                           style="display:flex; flex-direction:column; gap:12px; width:100%;">
                         <input type="hidden" name="redirect_to" value="{html_escape(safe_dest)}">
-                        <label>{t("email")}
-                            <input name="username" type="email"
+                        <label>{t("email_or_username")}
+                            <input name="username" type="text"
                                    style="width:100%; padding:8px; border:1px solid #ccc; border-radius:4px;">
                         </label>
                         <label>{t("password")}

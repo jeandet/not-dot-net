@@ -1,18 +1,27 @@
+import logging
 import re
+import ssl
+import uuid
 from collections.abc import Callable
+from dataclasses import dataclass
+from enum import Enum
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from ldap3 import Server, Connection, ALL
+from ldap3 import Server, Connection, ALL, Tls
 from ldap3.core.exceptions import LDAPBindError, LDAPException
 from ldap3.utils.conv import escape_filter_chars
 from pydantic import BaseModel
 
 from not_dot_net.backend.app_config import section
-from not_dot_net.backend.db import get_user_db
-from not_dot_net.backend.schemas import TokenResponse
-from not_dot_net.backend.users import get_jwt_strategy
 
-router = APIRouter(tags=["auth"])
+logger = logging.getLogger("not_dot_net.ldap")
+
+_AD_ATTRIBUTES = ["mail", "displayName", "givenName", "sn"]
+
+
+class TlsMode(str, Enum):
+    NONE = "none"
+    LDAPS = "ldaps"
+    START_TLS = "start_tls"
 
 
 class LdapConfig(BaseModel):
@@ -20,25 +29,50 @@ class LdapConfig(BaseModel):
     domain: str = "example.com"
     base_dn: str = "dc=example,dc=com"
     port: int = 389
+    tls_mode: TlsMode = TlsMode.NONE
+    tls_verify: bool = True
+    user_filter: str = ""
+    auto_provision: bool = True
 
 
 ldap_config = section("ldap", LdapConfig, label="LDAP / Active Directory")
 
 
-_USERNAME_RE = re.compile(r"^[a-zA-Z0-9._-]{1,64}$")
+USERNAME_RE = re.compile(r"^[a-zA-Z0-9._-]{1,64}$")
 
 
-class LDAPAuthRequest(BaseModel):
-    username: str
-    password: str
+@dataclass(frozen=True)
+class LdapUserInfo:
+    email: str
+    full_name: str | None = None
+    given_name: str | None = None
+    surname: str | None = None
+
+
+def _build_tls(ldap_cfg: LdapConfig) -> Tls | None:
+    if ldap_cfg.tls_mode == TlsMode.NONE:
+        return None
+    validate = ssl.CERT_REQUIRED if ldap_cfg.tls_verify else ssl.CERT_NONE
+    return Tls(validate=validate)
 
 
 def default_ldap_connect(ldap_cfg: LdapConfig, username: str, password: str) -> Connection:
-    """Create and bind an AD connection using user@domain."""
-    server = Server(ldap_cfg.url, port=ldap_cfg.port, get_info=ALL)
+    """Create and bind an AD connection using user@domain.
+
+    Supports plain LDAP, LDAPS (TLS on connect), and StartTLS (upgrade after connect).
+    """
+    use_ssl = ldap_cfg.tls_mode == TlsMode.LDAPS
+    tls = _build_tls(ldap_cfg)
+    server = Server(ldap_cfg.url, port=ldap_cfg.port, use_ssl=use_ssl, tls=tls, get_info=ALL)
     bind_user = f"{username}@{ldap_cfg.domain}"
-    conn = Connection(server, user=bind_user, password=password, auto_bind=True)
-    return conn
+
+    auto_bind = "TLS_BEFORE_BIND" if ldap_cfg.tls_mode == TlsMode.START_TLS else True
+    return Connection(server, user=bind_user, password=password, auto_bind=auto_bind)
+
+
+def _attr_value(entry, name: str) -> str | None:
+    attr = getattr(entry, name, None)
+    return attr.value if attr is not None else None
 
 
 def ldap_authenticate(
@@ -46,8 +80,11 @@ def ldap_authenticate(
     password: str,
     ldap_cfg: LdapConfig,
     connect: Callable[..., Connection] = default_ldap_connect,
-) -> str | None:
-    """Bind to AD, search for mail by sAMAccountName. Returns email or None."""
+) -> LdapUserInfo | None:
+    """Bind to AD, search for user attributes by sAMAccountName.
+
+    Returns LdapUserInfo on success, None on auth failure or user not found.
+    """
     try:
         conn = connect(ldap_cfg, username, password)
     except LDAPBindError:
@@ -57,15 +94,28 @@ def ldap_authenticate(
 
     try:
         safe_username = escape_filter_chars(username)
+        account_filter = f"(sAMAccountName={safe_username})"
+        if ldap_cfg.user_filter:
+            search_filter = f"(&{account_filter}{ldap_cfg.user_filter})"
+        else:
+            search_filter = account_filter
         conn.search(
             ldap_cfg.base_dn,
-            f"(sAMAccountName={safe_username})",
-            attributes=["mail"],
+            search_filter,
+            attributes=_AD_ATTRIBUTES,
         )
         if not conn.entries:
             return None
-        mail_attr = getattr(conn.entries[0], "mail", None)
-        return mail_attr.value if mail_attr is not None else None
+        entry = conn.entries[0]
+        email = _attr_value(entry, "mail")
+        if email is None:
+            return None
+        return LdapUserInfo(
+            email=email,
+            full_name=_attr_value(entry, "displayName"),
+            given_name=_attr_value(entry, "givenName"),
+            surname=_attr_value(entry, "sn"),
+        )
     finally:
         conn.unbind()
 
@@ -79,33 +129,32 @@ def set_ldap_connect(fn: Callable[..., Connection]) -> None:
     _ldap_connect = fn
 
 
-@router.post("/auth/ldap", response_model=TokenResponse)
-async def ldap_login(
-    credentials: LDAPAuthRequest,
-    user_db=Depends(get_user_db),
-):
-    if not _USERNAME_RE.match(credentials.username):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid username format",
-        )
+def get_ldap_connect() -> Callable[..., Connection]:
+    return _ldap_connect
 
-    cfg = await ldap_config.get()
-    email = ldap_authenticate(credentials.username, credentials.password, cfg, _ldap_connect)
 
-    if email is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid LDAP credentials or user not found",
-        )
+async def provision_ldap_user(user_info: LdapUserInfo, default_role: str) -> "User":
+    """Create a local user from AD attributes. Returns the new User."""
+    from not_dot_net.backend.db import User, AuthMethod, session_scope, get_user_db
+    from not_dot_net.backend.schemas import UserCreate
+    from not_dot_net.backend.users import get_user_manager
+    from contextlib import asynccontextmanager
 
-    user = await user_db.get_by_email(email)
-    if not user or not user.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="No local user mapped to this LDAP account",
-        )
-
-    strategy = get_jwt_strategy()
-    token = await strategy.write_token(user)
-    return TokenResponse(access_token=token)
+    async with session_scope() as session:
+        async with asynccontextmanager(get_user_db)(session) as user_db:
+            async with asynccontextmanager(get_user_manager)(user_db) as user_manager:
+                user = await user_manager.create(
+                    UserCreate(
+                        email=user_info.email,
+                        password=uuid.uuid4().hex,  # random, unusable for local login
+                        is_active=True,
+                    )
+                )
+                user.auth_method = AuthMethod.LDAP
+                user.full_name = user_info.full_name
+                user.role = default_role
+                session.add(user)
+                await session.commit()
+                await session.refresh(user)
+                logger.info("Auto-provisioned LDAP user '%s' with role '%s'", user.email, default_role)
+                return user
