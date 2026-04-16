@@ -130,8 +130,9 @@ def setup():
                 title = f"({count}) NotDotNet" if count > 0 else "NotDotNet"
                 await ui.run_javascript(f"document.title = {title!r}")
 
-            ui.timer(60, update_badge)
+            badge_timer = ui.timer(60, update_badge)
             ui.timer(0, update_badge, once=True)
+            app.on_disconnect(lambda: setattr(badge_timer, 'active', False))
 
         return None
 
