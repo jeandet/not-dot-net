@@ -60,12 +60,12 @@ async def handle_login(
 
 
 async def _try_ldap_auth(username: str, password: str):
-    """Attempt LDAP auth. Auto-provisions user if configured. Returns User or None."""
+    """Attempt LDAP auth. Returns User or None. Syncs AD attrs on success."""
     from not_dot_net.backend.auth.ldap import (
         USERNAME_RE, ldap_config, ldap_authenticate, get_ldap_connect,
-        provision_ldap_user,
+        provision_ldap_user, sync_user_from_ldap,
     )
-    from not_dot_net.backend.db import session_scope, get_user_db
+    from not_dot_net.backend.db import session_scope, get_user_db, User
     from not_dot_net.backend.roles import roles_config
     from contextlib import asynccontextmanager
 
@@ -77,15 +77,17 @@ async def _try_ldap_auth(username: str, password: str):
     if user_info is None:
         return None
 
-    # Look up existing local user by email
     async with session_scope() as session:
         async with asynccontextmanager(get_user_db)(session) as user_db:
             user = await user_db.get_by_email(user_info.email)
 
     if user is not None:
-        return user if user.is_active else None
+        if not user.is_active:
+            return None
+        await sync_user_from_ldap(user.id, user_info)
+        async with session_scope() as session:
+            return await session.get(User, user.id)
 
-    # Auto-provision
     if not cfg.auto_provision:
         logger.info("LDAP user '%s' has no local account and auto_provision is off", user_info.email)
         return None

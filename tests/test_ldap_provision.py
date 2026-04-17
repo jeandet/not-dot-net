@@ -154,3 +154,40 @@ async def test_try_ldap_auto_provision_off():
 
     user = await _try_ldap_auth("noprov", "pass")
     assert user is None
+
+
+async def test_existing_ldap_user_gets_resynced_on_login():
+    fake_users = {
+        "jdoe": {
+            "mail": "jdoe@example.com",
+            "displayName": "John Doe",
+            "givenName": "John", "sn": "Doe",
+            "telephoneNumber": "+33NEW", "physicalDeliveryOfficeName": "Room 101",
+            "title": "Researcher", "department": "Plasma",
+            "password": "secret",
+        },
+    }
+    await ldap_config.set(LDAP_CFG)
+    set_ldap_connect(_make_fake_connect(fake_users))
+
+    # Pre-seed a local user with stale data
+    async with session_scope() as session:
+        user = User(
+            email="jdoe@example.com", hashed_password="x", is_active=True,
+            auth_method=AuthMethod.LDAP, phone="+33OLD", office="Old Room",
+            employment_status="Permanent",
+        )
+        session.add(user)
+        await session.commit()
+        user_id = user.id
+
+    user = await _try_ldap_auth("jdoe", "secret")
+    assert user is not None
+    assert user.phone == "+33NEW"
+    assert user.office == "Room 101"
+    assert user.title == "Researcher"
+    assert user.team == "Plasma"
+
+    async with session_scope() as session:
+        refreshed = await session.get(User, user_id)
+        assert refreshed.employment_status == "Permanent"  # preserved
