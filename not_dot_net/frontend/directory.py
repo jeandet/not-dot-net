@@ -9,8 +9,25 @@ from not_dot_net.backend.schemas import UserUpdate
 from not_dot_net.backend.users import get_user_manager
 from not_dot_net.frontend.i18n import t
 from not_dot_net.backend.permissions import permission, has_permissions
+from not_dot_net.backend.auth.ldap import AD_ATTR_MAP
 
 MANAGE_USERS = permission("manage_users", "Manage users", "Edit/delete users in directory")
+
+
+def classify_updates(updates: dict) -> tuple[dict[str, str | None], dict]:
+    """Split a user-update dict into (AD attribute changes, local-only DB updates).
+
+    AD changes are keyed by AD attribute name (telephoneNumber, ...).
+    """
+    ad_changes: dict[str, str | None] = {}
+    local_updates: dict = {}
+    for field, value in updates.items():
+        ad_attr = AD_ATTR_MAP.get(field)
+        if ad_attr is not None:
+            ad_changes[ad_attr] = value
+        else:
+            local_updates[field] = value
+    return ad_changes, local_updates
 
 
 async def _load_people() -> list[User]:
