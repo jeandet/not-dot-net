@@ -58,6 +58,32 @@ class TestAuditResolveNames:
         assert ev._target_display == "John Doe"
 
 
+class TestNoPublicRestApi:
+    """FastAPI-Users routers exposed PATCH /users/me which let any authenticated
+    user escalate themselves by setting role='admin' (custom fields bypass the
+    library's is_superuser strip). The whole public REST surface was removed —
+    only NiceGUI and the HTML login form are reachable."""
+
+    def _routes(self):
+        from nicegui import app
+        from not_dot_net.app import create_app
+        create_app()
+        return {getattr(r, "path", None) for r in app.routes}
+
+    def test_users_router_not_mounted(self):
+        paths = self._routes()
+        assert "/users/me" not in paths
+        assert not any(p and p.startswith("/users/") for p in paths)
+
+    def test_fastapi_users_auth_routers_not_mounted(self):
+        paths = self._routes()
+        assert not any(p and p.startswith("/auth/jwt") for p in paths)
+        assert not any(p and p.startswith("/auth/cookie") for p in paths)
+
+    def test_auth_local_jwt_endpoint_not_mounted(self):
+        assert "/auth/local" not in self._routes()
+
+
 class TestLdapEscaping:
     def test_special_chars_escaped(self):
         from ldap3.utils.conv import escape_filter_chars

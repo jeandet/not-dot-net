@@ -2,12 +2,6 @@ import uuid
 from datetime import date
 
 from fastapi_users import schemas
-from pydantic import BaseModel
-
-
-
-class TokenResponse(BaseModel):
-    access_token: str
 
 
 class UserRead(schemas.BaseUser[uuid.UUID]):

@@ -33,9 +33,10 @@ uv run pytest
 1. `init_settings()` loads YAML + env config into module-level singleton
 2. `init_db()` creates async engine + session maker at module level
 3. `app.on_startup(create_db_and_tables)` schedules table creation
-4. FastAPI-Users routers are included (`/auth/jwt`, `/auth/cookie`, `/users`)
-5. Custom auth routers are included (`/auth/local`, `/auth/ldap`, `/auth/register`)
-6. Frontend pages are set up (`/login`, `/user/profile`)
+4. Login router is included (`/auth/login` HTML form POST, `/logout`)
+5. Frontend pages are set up (`/login`, shell tabs, public pages)
+
+**No public REST API.** FastAPI-Users' `get_users_router` exposed `PATCH /users/me` which let any logged-in user set their own `role` to `admin` (custom fields bypass the library's `is_superuser` strip). All FastAPI-Users HTTP routers and the custom `/auth/local` JWT endpoint have been removed — auth backends (`cookie_backend`) are kept only to power the `current_active_user` dependency used by NiceGUI pages.
 
 ### Module-level dependency injection
 
@@ -47,15 +48,12 @@ Both `db.py` and `config.py` use `init_*()` functions that must be called before
 
 ### Auth endpoints
 
-`backend/auth/` contains APIRouter-based endpoints:
-- `local.py`: POST `/auth/local` (password login)
-- `ldap.py`: POST `/auth/ldap` (LDAP bind + JWT)
+- `frontend/login.py`: POST `/auth/login` (HTML form, local-first then LDAP/AD fallback, sets httponly cookie), GET `/logout`
+- `backend/auth/ldap.py`: owns `LdapConfig` section + helpers (no HTTP endpoints)
 
 ### Frontend pages
 
 NiceGUI pages in `frontend/` expose a `setup()` function that registers `@ui.page` routes. They import dependencies directly from `backend/users.py`.
-
-`login.py` posts to `/auth/cookie/login` via JS fetch — the browser receives an httponly cookie via `Set-Cookie` header. No server-side DI escape hatch needed.
 
 ### Configuration
 

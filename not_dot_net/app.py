@@ -6,15 +6,7 @@ from nicegui import app, ui
 
 from not_dot_net.backend.db import init_db, create_db_and_tables
 from not_dot_net.backend.secrets import load_or_create
-from not_dot_net.backend.users import (
-    fastapi_users,
-    jwt_backend,
-    cookie_backend,
-    init_user_secrets,
-    ensure_default_admin,
-)
-from not_dot_net.backend.schemas import UserRead, UserUpdate
-from not_dot_net.backend.auth import router as auth_router
+from not_dot_net.backend.users import init_user_secrets, ensure_default_admin
 import not_dot_net.backend.auth.ldap  # noqa: F401 — register LdapConfig section
 from not_dot_net.frontend.login import setup as setup_login, login_router
 from not_dot_net.frontend.shell import setup as setup_shell
@@ -58,22 +50,6 @@ def create_app(
 
     app.on_startup(startup)
 
-    app.include_router(
-        fastapi_users.get_auth_router(jwt_backend),
-        prefix="/auth/jwt",
-        tags=["auth"],
-    )
-    app.include_router(
-        fastapi_users.get_auth_router(cookie_backend),
-        prefix="/auth/cookie",
-        tags=["auth"],
-    )
-    app.include_router(
-        fastapi_users.get_users_router(UserRead, UserUpdate),
-        prefix="/users",
-        tags=["users"],
-    )
-    app.include_router(auth_router)
     app.include_router(login_router)
 
     from not_dot_net.backend.workflow_file_routes import router as workflow_file_router
