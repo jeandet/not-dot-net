@@ -108,6 +108,66 @@ async def _set_role(query: str, role: str):
 
 
 @app.command
+def test_ldap(username: str, password: str):
+    """Test LDAP authentication and print the result."""
+    asyncio.run(_test_ldap(username, password))
+
+
+async def _test_ldap(username: str, password: str):
+    from not_dot_net.backend.db import init_db
+    from not_dot_net.backend.app_config import AppSetting  # noqa: F401 — register model
+    from not_dot_net.backend.auth.ldap import ldap_config, ldap_authenticate, get_ldap_connect
+
+    database_url = os.environ.get("DATABASE_URL", "sqlite+aiosqlite:///./dev.db")
+    init_db(database_url)
+
+    cfg = await ldap_config.get()
+    print(f"LDAP config: url={cfg.url} effective_url={cfg.effective_url} domain={cfg.domain}")
+    print(f"  base_dn={cfg.base_dn} port={cfg.port} tls_mode={cfg.tls_mode}")
+    print(f"  auto_provision={cfg.auto_provision} user_filter={cfg.user_filter!r}")
+    print(f"Attempting LDAP auth for '{username}'...")
+
+    result = ldap_authenticate(username, password, cfg, get_ldap_connect())
+    if result is None:
+        print("LDAP auth failed — bad credentials, user not found, or connection error.")
+        raise SystemExit(1)
+    print(f"Success:")
+    print(f"  email: {result.email}")
+    print(f"  dn: {result.dn}")
+    print(f"  full_name: {result.full_name}")
+    print(f"  phone: {result.phone}")
+    print(f"  office: {result.office}")
+    print(f"  title: {result.title}")
+    print(f"  department: {result.department}")
+
+
+@app.command
+def drop_users():
+    """Delete all non-admin users from the database."""
+    asyncio.run(_drop_users())
+
+
+async def _drop_users():
+    from not_dot_net.backend.db import init_db, session_scope, User
+    from sqlalchemy import select, delete
+
+    database_url = os.environ.get("DATABASE_URL", "sqlite+aiosqlite:///./dev.db")
+    init_db(database_url)
+
+    async with session_scope() as session:
+        result = await session.execute(select(User).where(User.role != "admin"))
+        victims = result.scalars().all()
+        if not victims:
+            print("No non-admin users to delete.")
+            return
+        for u in victims:
+            print(f"  deleting {u.email} ({u.full_name or '-'}, role={u.role or '(none)'})")
+        await session.execute(delete(User).where(User.role != "admin"))
+        await session.commit()
+        print(f"Deleted {len(victims)} user(s).")
+
+
+@app.command
 def create_user(
     username: str,
     password: str,
