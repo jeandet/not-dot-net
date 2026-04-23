@@ -52,8 +52,15 @@ def create_app(
         if _seed_fake_users:
             from not_dot_net.backend.seeding import seed_fake_users
             await seed_fake_users()
+        from not_dot_net.backend.auth.ldap import start_connection_reaper
+        start_connection_reaper()
+
+    async def shutdown():
+        from not_dot_net.backend.auth.ldap import drop_all_connections
+        drop_all_connections()
 
     app.on_startup(startup)
+    app.on_shutdown(shutdown)
 
     app.include_router(login_router)
 

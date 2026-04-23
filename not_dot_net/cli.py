@@ -170,25 +170,27 @@ async def _test_ldap(username: str, password: str):
     conn.unbind()
 
     print(f"\nStep 3: full auth flow...")
-    result = ldap_authenticate(username, password, cfg, get_ldap_connect())
-    if result is None:
+    auth_result = ldap_authenticate(username, password, cfg, get_ldap_connect())
+    if auth_result is None:
         print("  Auth+search returned None — check Step 2 output above.")
         raise SystemExit(1)
+    info, auth_conn = auth_result
+    auth_conn.unbind()
     print(f"Success:")
-    print(f"  email: {result.email}")
-    print(f"  dn: {result.dn}")
-    print(f"  full_name: {result.full_name}")
-    print(f"  phone: {result.phone}")
-    print(f"  office: {result.office}")
-    print(f"  title: {result.title}")
-    print(f"  department: {result.department}")
-    print(f"  company: {result.company}")
-    print(f"  description: {result.description}")
-    print(f"  webpage: {result.webpage}")
-    print(f"  uid_number: {result.uid_number}")
-    print(f"  gid_number: {result.gid_number}")
-    print(f"  member_of: {result.member_of}")
-    print(f"  photo: {'yes (' + str(len(result.photo)) + ' bytes)' if result.photo else 'no'}")
+    print(f"  email: {info.email}")
+    print(f"  dn: {info.dn}")
+    print(f"  full_name: {info.full_name}")
+    print(f"  phone: {info.phone}")
+    print(f"  office: {info.office}")
+    print(f"  title: {info.title}")
+    print(f"  department: {info.department}")
+    print(f"  company: {info.company}")
+    print(f"  description: {info.description}")
+    print(f"  webpage: {info.webpage}")
+    print(f"  uid_number: {info.uid_number}")
+    print(f"  gid_number: {info.gid_number}")
+    print(f"  member_of: {info.member_of}")
+    print(f"  photo: {'yes (' + str(len(info.photo)) + ' bytes)' if info.photo else 'no'}")
 
 
 @app.command

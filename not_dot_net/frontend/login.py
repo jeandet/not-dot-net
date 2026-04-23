@@ -8,7 +8,7 @@ from fastapi.responses import RedirectResponse
 from fastapi.security import OAuth2PasswordRequestForm
 from nicegui import app, ui
 
-from not_dot_net.backend.users import get_user_manager, cookie_transport, get_jwt_strategy
+from not_dot_net.backend.users import get_user_manager, cookie_transport, get_jwt_strategy, current_active_user_optional
 from not_dot_net.frontend.i18n import t
 
 logger = logging.getLogger("not_dot_net.login")
@@ -17,7 +17,10 @@ login_router = APIRouter(tags=["auth"])
 
 
 @login_router.get("/logout")
-async def handle_logout():
+async def handle_logout(request: Request, user=Depends(current_active_user_optional)):
+    from not_dot_net.backend.auth.ldap import drop_user_connection
+    if user is not None:
+        drop_user_connection(str(user.id))
     response = RedirectResponse("/login", status_code=303)
     logout_response = await cookie_transport.get_logout_response()
     for header_value in logout_response.headers.getlist("set-cookie"):
@@ -63,7 +66,7 @@ async def _try_ldap_auth(username: str, password: str):
     """Attempt LDAP auth. Returns User or None. Syncs AD attrs on success."""
     from not_dot_net.backend.auth.ldap import (
         USERNAME_RE, ldap_config, ldap_authenticate, get_ldap_connect,
-        provision_ldap_user, sync_user_from_ldap,
+        provision_ldap_user, sync_user_from_ldap, store_user_connection,
     )
     from not_dot_net.backend.db import session_scope, get_user_db, User
     from not_dot_net.backend.roles import roles_config
@@ -73,9 +76,10 @@ async def _try_ldap_auth(username: str, password: str):
         return None
 
     cfg = await ldap_config.get()
-    user_info = ldap_authenticate(username, password, cfg, get_ldap_connect())
-    if user_info is None:
+    result = ldap_authenticate(username, password, cfg, get_ldap_connect())
+    if result is None:
         return None
+    user_info, ldap_conn = result
 
     async with session_scope() as session:
         async with asynccontextmanager(get_user_db)(session) as user_db:
@@ -83,6 +87,7 @@ async def _try_ldap_auth(username: str, password: str):
 
     if user is not None:
         if not user.is_active:
+            ldap_conn.unbind()
             return None
         from not_dot_net.backend.db import AuthMethod
         if user.auth_method == AuthMethod.LOCAL:
@@ -95,16 +100,20 @@ async def _try_ldap_auth(username: str, password: str):
                 db_user.auth_method = AuthMethod.LDAP
                 await session.commit()
         await sync_user_from_ldap(user.id, user_info)
+        store_user_connection(str(user.id), ldap_conn)
         async with session_scope() as session:
             return await session.get(User, user.id)
 
     if not cfg.auto_provision:
         logger.info("LDAP user '%s' has no local account and auto_provision is off", user_info.email)
+        ldap_conn.unbind()
         return None
 
     roles_cfg = await roles_config.get()
     default_role = roles_cfg.default_role or ""
-    return await provision_ldap_user(user_info, default_role)
+    new_user = await provision_ldap_user(user_info, default_role)
+    store_user_connection(str(new_user.id), ldap_conn)
+    return new_user
 
 
 def _safe_redirect(redirect_to: str) -> str:

@@ -52,10 +52,11 @@ def fake_ldap_connect(ldap_cfg: LdapConfig, username: str, password: str) -> Con
 def test_successful_authentication():
     result = ldap_authenticate("jdoe", "secret", LDAP_CFG, connect=fake_ldap_connect)
     assert result is not None
-    assert result.email == "jdoe@example.com"
-    assert result.full_name == "John Doe"
-    assert result.given_name == "John"
-    assert result.surname == "Doe"
+    info, conn = result
+    assert info.email == "jdoe@example.com"
+    assert info.full_name == "John Doe"
+    assert info.given_name == "John"
+    assert info.surname == "Doe"
 
 
 def test_wrong_password_returns_none():
@@ -71,13 +72,15 @@ def test_unknown_user_returns_none():
 def test_user_without_mail_falls_back_to_domain():
     result = ldap_authenticate("nomail", "secret", LDAP_CFG, connect=fake_ldap_connect)
     assert result is not None
-    assert result.email == "nomail@example.com"
+    info, _ = result
+    assert info.email == "nomail@example.com"
 
 
 def test_user_without_mail_falls_back_to_upn():
     result = ldap_authenticate("upnonly", "secret", LDAP_CFG, connect=fake_ldap_connect)
     assert result is not None
-    assert result.email == "upnonly@example.com"
+    info, _ = result
+    assert info.email == "upnonly@example.com"
 
 
 class TestEffectiveUrls:
@@ -159,8 +162,9 @@ class TestEffectiveUrls:
 def test_authentication_returns_dn_and_extended_attrs():
     result = ldap_authenticate("jdoe", "secret", LDAP_CFG, connect=fake_ldap_connect)
     assert result is not None
-    assert result.dn == "cn=jdoe,ou=users,dc=example,dc=com"
-    assert result.phone == "+33123456789"
-    assert result.office == "Room 101"
-    assert result.title == "Researcher"
-    assert result.department == "Plasma"
+    info, _ = result
+    assert info.dn == "cn=jdoe,ou=users,dc=example,dc=com"
+    assert info.phone == "+33123456789"
+    assert info.office == "Room 101"
+    assert info.title == "Researcher"
+    assert info.department == "Plasma"

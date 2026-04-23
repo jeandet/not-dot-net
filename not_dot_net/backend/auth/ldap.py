@@ -1,6 +1,8 @@
+import asyncio
 import logging
 import re
 import ssl
+import time
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -187,10 +189,11 @@ def ldap_authenticate(
     password: str,
     ldap_cfg: LdapConfig,
     connect: Callable[..., Connection] = default_ldap_connect,
-) -> LdapUserInfo | None:
+) -> tuple[LdapUserInfo, Connection] | None:
     """Bind to AD, search for user attributes by sAMAccountName.
 
-    Returns LdapUserInfo on success, None on auth failure or user not found.
+    Returns (LdapUserInfo, bound Connection) on success, None on auth failure.
+    The caller owns the connection and must unbind or store it.
     """
     try:
         conn = connect(ldap_cfg, username, password)
@@ -212,6 +215,7 @@ def ldap_authenticate(
             attributes=_AD_ATTRIBUTES,
         )
         if not conn.entries:
+            conn.unbind()
             return None
         entry = conn.entries[0]
         email = (
@@ -219,7 +223,7 @@ def ldap_authenticate(
             or _attr_value(entry, "userPrincipalName")
             or f"{username}@{ldap_cfg.domain}"
         )
-        return LdapUserInfo(
+        info = LdapUserInfo(
             email=email,
             dn=entry.entry_dn,
             sam_account_name=_attr_value(entry, "sAMAccountName") or username,
@@ -238,11 +242,84 @@ def ldap_authenticate(
             uid_number=_attr_int(entry, "uidNumber"),
             gid_number=_attr_int(entry, "gidNumber"),
         )
-    finally:
+        return info, conn
+    except Exception:
         conn.unbind()
+        raise
 
 
 _ldap_connect: Callable[..., Connection] = default_ldap_connect
+
+# --- Per-user persistent LDAP connections with TTL ---
+
+CONNECTION_TTL_SECONDS = 30 * 60  # 30 minutes
+_REAP_INTERVAL_SECONDS = 60
+
+_user_connections: dict[str, tuple[Connection, float]] = {}
+_reaper_task: asyncio.Task | None = None
+
+
+def _unbind_safe(conn: Connection) -> None:
+    try:
+        if conn.bound:
+            conn.unbind()
+    except Exception:
+        pass
+
+
+def store_user_connection(user_id: str, conn: Connection) -> None:
+    old = _user_connections.pop(user_id, None)
+    if old is not None:
+        _unbind_safe(old[0])
+    _user_connections[user_id] = (conn, time.monotonic())
+
+
+def get_user_connection(user_id: str) -> Connection | None:
+    entry = _user_connections.get(user_id)
+    if entry is None:
+        return None
+    conn, stored_at = entry
+    if time.monotonic() - stored_at > CONNECTION_TTL_SECONDS:
+        _user_connections.pop(user_id, None)
+        _unbind_safe(conn)
+        return None
+    if not conn.bound:
+        _user_connections.pop(user_id, None)
+        return None
+    return conn
+
+
+def drop_user_connection(user_id: str) -> None:
+    entry = _user_connections.pop(user_id, None)
+    if entry is not None:
+        _unbind_safe(entry[0])
+
+
+def drop_all_connections() -> None:
+    for entry in _user_connections.values():
+        _unbind_safe(entry[0])
+    _user_connections.clear()
+
+
+async def _reap_expired_connections() -> None:
+    while True:
+        await asyncio.sleep(_REAP_INTERVAL_SECONDS)
+        now = time.monotonic()
+        expired = [
+            uid for uid, (_, stored_at) in _user_connections.items()
+            if now - stored_at > CONNECTION_TTL_SECONDS
+        ]
+        for uid in expired:
+            entry = _user_connections.pop(uid, None)
+            if entry is not None:
+                _unbind_safe(entry[0])
+                logger.debug("Reaped expired LDAP connection for user %s", uid)
+
+
+def start_connection_reaper() -> None:
+    global _reaper_task
+    if _reaper_task is None or _reaper_task.done():
+        _reaper_task = asyncio.create_task(_reap_expired_connections())
 
 
 def set_ldap_connect(fn: Callable[..., Connection]) -> None:

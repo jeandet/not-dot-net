@@ -242,55 +242,62 @@ async def _render_detail(container, person: User, current_user: User, state: dic
 
 async def _render_edit(container, person: User, current_user: User, state: dict):
     is_ldap = person.auth_method == AuthMethod.LDAP and person.ldap_dn
-    if is_ldap:
-        await _prompt_ad_credentials_then_edit(container, person, current_user, state)
-    else:
+    if not is_ldap:
         await _render_edit_form(container, person, current_user, state,
-                                ad_writable=None, ad_credentials=None)
+                                ad_writable=None, stored_conn=None)
+        return
+
+    from not_dot_net.backend.auth.ldap import get_user_connection, _query_writable_attributes
+
+    conn = get_user_connection(str(current_user.id))
+    if conn is not None:
+        try:
+            writable = _query_writable_attributes(conn, person.ldap_dn)
+        except Exception:
+            writable = set()
+        await _render_edit_form(container, person, current_user, state,
+                                ad_writable=writable, stored_conn=conn)
+    elif person.id == current_user.id:
+        ui.notify(t("session_expired"), color="warning")
+        ui.navigate.to("/login")
+    else:
+        await _prompt_ad_credentials_then_edit(container, person, current_user, state)
 
 
 async def _prompt_ad_credentials_then_edit(container, person, current_user, state):
-    """Ask for AD credentials, query writable attributes, then show the edit form."""
+    """Ask for AD credentials when no stored connection exists (e.g. admin editing another user)."""
     from not_dot_net.backend.auth.ldap import (
-        ldap_config, get_ldap_connect, ldap_get_writable_attributes, LdapModifyError,
+        ldap_config, get_ldap_connect, _query_writable_attributes,
+        _ldap_bind, LdapModifyError, store_user_connection,
     )
 
-    is_own = person.id == current_user.id
     dialog = ui.dialog()
     with dialog, ui.card():
-        if is_own:
-            ui.label(t("confirm_password_to_save_ad"))
-            password_input = ui.input(t("password"), password=True).props("outlined dense")
-        else:
-            ui.label(t("admin_ad_credentials"))
-            username_input = ui.input(t("ad_admin_username")).props("outlined dense")
-            password_input = ui.input(t("password"), password=True).props("outlined dense")
+        ui.label(t("admin_ad_credentials"))
+        username_input = ui.input(t("ad_admin_username")).props("outlined dense")
+        password_input = ui.input(t("password"), password=True).props("outlined dense")
         error_label = ui.label("").classes("text-negative")
 
         async def submit():
-            bind_user = current_user.ldap_username if is_own else username_input.value.strip()
+            bind_user = username_input.value.strip()
             if not bind_user or not password_input.value:
                 return
             cfg = await ldap_config.get()
             try:
-                writable = ldap_get_writable_attributes(
-                    dn=person.ldap_dn,
-                    bind_username=bind_user,
-                    bind_password=password_input.value,
-                    ldap_cfg=cfg,
-                    connect=get_ldap_connect(),
-                )
+                conn = _ldap_bind(bind_user, password_input.value, cfg, get_ldap_connect())
+                writable = _query_writable_attributes(conn, person.ldap_dn)
             except LdapModifyError as e:
                 msg = str(e)
                 error_label.set_text(
                     t("ad_bind_failed") if "bind" in msg.lower() else t("ad_write_failed", error=msg)
                 )
                 return
+            store_user_connection(str(current_user.id), conn)
             dialog.close()
             await _render_edit_form(
                 container, person, current_user, state,
                 ad_writable=writable,
-                ad_credentials=(bind_user, password_input.value),
+                stored_conn=conn,
             )
 
         with ui.row():
@@ -314,7 +321,7 @@ def _is_ad_writable(field_name: str, ad_writable: set[str] | None) -> bool:
 
 
 async def _render_edit_form(container, person: User, current_user: User, state: dict,
-                            *, ad_writable: set[str] | None, ad_credentials: tuple | None):
+                            *, ad_writable: set[str] | None, stored_conn=None):
     container.clear()
     is_admin = await has_permissions(current_user, "manage_users")
 
@@ -366,29 +373,27 @@ async def _render_edit_form(container, person: User, current_user: User, state: 
             ad_changes, local_updates = classify_updates(diff)
             needs_ad_write = bool(ad_changes) and person.auth_method == AuthMethod.LDAP
 
-            if needs_ad_write and ad_credentials:
-                from not_dot_net.backend.auth.ldap import (
-                    ldap_config, get_ldap_connect, ldap_check_and_modify, LdapModifyError,
-                )
-                cfg = await ldap_config.get()
-                bind_user, bind_pass = ad_credentials
-                try:
-                    _writable, skipped = ldap_check_and_modify(
-                        dn=person.ldap_dn,
-                        changes=ad_changes,
-                        bind_username=bind_user,
-                        bind_password=bind_pass,
-                        ldap_cfg=cfg,
-                        connect=get_ldap_connect(),
-                    )
-                except LdapModifyError as e:
-                    ui.notify(t("ad_write_failed", error=str(e)), color="negative")
+            if needs_ad_write:
+                from not_dot_net.backend.auth.ldap import get_user_connection, LdapModifyError
+                from ldap3 import MODIFY_REPLACE
+                conn = get_user_connection(str(current_user.id))
+                if conn is None or not conn.bound:
+                    ui.notify(t("session_expired"), color="warning")
+                    ui.navigate.to("/login")
                     return
-                if skipped:
-                    ui.notify(
-                        f"AD: skipped read-only attributes: {', '.join(skipped)}",
-                        color="warning",
-                    )
+                modify_payload = {
+                    attr: [(MODIFY_REPLACE, [val] if val else [])]
+                    for attr, val in ad_changes.items()
+                    if ad_writable is None or attr in ad_writable
+                }
+                if modify_payload:
+                    ok = conn.modify(person.ldap_dn, modify_payload)
+                    if not ok:
+                        ui.notify(
+                            t("ad_write_failed", error=conn.result.get("description", "")),
+                            color="negative",
+                        )
+                        return
 
             await _update_user(person.id, diff)
             await _finish_save(container, person, current_user, state)

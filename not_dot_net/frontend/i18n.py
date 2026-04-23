@@ -44,6 +44,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "ad_admin_username": "AD admin username",
         "ad_write_failed": "Active Directory update failed: {error}",
         "ad_bind_failed": "Incorrect password — try again",
+        "session_expired": "Session expired — please log in again",
         # Common
         "name": "Name",
         "submit": "Submit",
@@ -215,6 +216,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "ad_admin_username": "Nom d'utilisateur administrateur AD",
         "ad_write_failed": "Échec de la mise à jour de l'Active Directory : {error}",
         "ad_bind_failed": "Mot de passe incorrect — réessayez",
+        "session_expired": "Session expirée — veuillez vous reconnecter",
         # Common
         "name": "Nom",
         "submit": "Envoyer",
