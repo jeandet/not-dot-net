@@ -200,16 +200,17 @@ async def _render_detail(container, person: User, current_user: User, state: dic
             ui.label(f"{t('start_date')}: {person.start_date}").classes("text-sm")
         if person.end_date:
             ui.label(f"{t('end_date')}: {person.end_date}").classes("text-sm")
-        if person.uid_number is not None or person.gid_number is not None:
-            parts = []
-            if person.uid_number is not None:
-                parts.append(f"{t('uid_number')}: {person.uid_number}")
-            if person.gid_number is not None:
-                parts.append(f"{t('gid_number')}: {person.gid_number}")
-            ui.label(" | ".join(parts)).classes("text-sm text-gray-500")
-        if person.member_of:
-            cn_names = [dn.split(",")[0].removeprefix("CN=") for dn in person.member_of]
-            ui.label(f"{t('member_of')}: {', '.join(cn_names)}").classes("text-sm text-gray-500")
+        if is_admin:
+            if person.uid_number is not None or person.gid_number is not None:
+                parts = []
+                if person.uid_number is not None:
+                    parts.append(f"{t('uid_number')}: {person.uid_number}")
+                if person.gid_number is not None:
+                    parts.append(f"{t('gid_number')}: {person.gid_number}")
+                ui.label(" | ".join(parts)).classes("text-sm text-gray-500")
+            if person.member_of:
+                cn_names = [dn.split(",")[0].removeprefix("CN=") for dn in person.member_of]
+                ui.label(f"{t('member_of')}: {', '.join(cn_names)}").classes("text-sm text-gray-500")
 
         if is_own or is_admin:
             async def do_edit():

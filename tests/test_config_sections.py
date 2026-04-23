@@ -57,7 +57,7 @@ async def test_bookings_config_registered():
 async def test_ldap_config_defaults():
     from not_dot_net.backend.auth.ldap import ldap_config
     cfg = await ldap_config.get()
-    assert cfg.url == "ldap://localhost"
+    assert cfg.url == ""
     assert cfg.domain == "example.com"
     assert cfg.port == 389
 

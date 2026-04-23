@@ -13,7 +13,14 @@ from not_dot_net.backend.page_service import (
 from not_dot_net.frontend.i18n import t
 
 
+async def _ensure_no_page(slug: str):
+    existing = await get_page(slug)
+    if existing is not None:
+        await delete_page(existing.id)
+
+
 async def test_full_page_lifecycle():
+    await _ensure_no_page("faq")
     page = await create_page(
         title="FAQ", slug="faq", content="## FAQ\n\nNothing yet.",
         author_id=None, published=False,
@@ -45,6 +52,7 @@ async def test_full_page_lifecycle():
 
 
 async def test_public_page_route_shows_published_content(user: User):
+    await _ensure_no_page("public-faq")
     await create_page(
         title="Public FAQ",
         slug="public-faq",
@@ -59,6 +67,7 @@ async def test_public_page_route_shows_published_content(user: User):
 
 
 async def test_public_page_route_hides_draft_content(user: User):
+    await _ensure_no_page("private-draft")
     await create_page(
         title="Private Draft",
         slug="private-draft",
@@ -73,6 +82,7 @@ async def test_public_page_route_hides_draft_content(user: User):
 
 
 async def test_public_page_route_reflects_publish_and_unpublish(user: User):
+    await _ensure_no_page("release-notes-public")
     page = await create_page(
         title="Release Notes",
         slug="release-notes-public",
