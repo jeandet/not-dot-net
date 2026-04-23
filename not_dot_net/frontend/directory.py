@@ -241,104 +241,21 @@ async def _render_detail(container, person: User, current_user: User, state: dic
 
 
 async def _render_edit(container, person: User, current_user: User, state: dict):
-    container.clear()
-    is_admin = await has_permissions(current_user, "manage_users")
-
-    with container:
-        ui.separator()
-
-        fields = {}
-        if is_admin:
-            fields["full_name"] = ui.input(
-                t("full_name"), value=person.full_name or ""
-            ).props("outlined dense")
-            fields["email"] = ui.input(
-                t("email"), value=person.email
-            ).props("outlined dense")
-            fields["team"] = ui.input(
-                t("team"), value=person.team or ""
-            ).props("outlined dense")
-            fields["employment_status"] = ui.input(
-                t("status"), value=person.employment_status or ""
-            ).props("outlined dense")
-            fields["title"] = ui.input(
-                t("title"), value=person.title or ""
-            ).props("outlined dense")
-            fields["start_date"] = ui.input(
-                t("start_date"), value=str(person.start_date) if person.start_date else ""
-            ).props("outlined dense")
-            fields["end_date"] = ui.input(
-                t("end_date"), value=str(person.end_date) if person.end_date else ""
-            ).props("outlined dense")
-
-        fields["phone"] = ui.input(
-            t("phone"), value=person.phone or ""
-        ).props("outlined dense")
-        fields["office"] = ui.input(
-            t("office"), value=person.office or ""
-        ).props("outlined dense")
-        fields["company"] = ui.input(
-            t("company"), value=person.company or ""
-        ).props("outlined dense")
-        fields["description"] = ui.input(
-            t("description"), value=person.description or ""
-        ).props("outlined dense")
-        fields["webpage"] = ui.input(
-            t("webpage"), value=person.webpage or ""
-        ).props("outlined dense")
-
-        async def save():
-            submitted = {}
-            for k, v in fields.items():
-                val = v.value or None
-                if k in ("start_date", "end_date") and val:
-                    val = date.fromisoformat(val)
-                submitted[k] = val
-
-            current = {k: getattr(person, k) for k in submitted}
-            diff = compute_update_diff(current, submitted)
-            if not diff:
-                ui.notify(t("saved"), color="positive")
-                return
-
-            ad_changes, local_updates = classify_updates(diff)
-            needs_ad_write = bool(ad_changes) and person.auth_method == AuthMethod.LDAP
-
-            if not needs_ad_write:
-                await _update_user(person.id, diff)
-                await _finish_save(container, person, current_user, state)
-                return
-
-            is_own = person.id == current_user.id
-            await _prompt_ad_credentials_and_save(
-                container, person, current_user, state,
-                diff, ad_changes, local_updates, is_own=is_own,
-            )
-
-        with ui.row():
-            ui.button(t("save"), on_click=save).props("flat dense color=primary")
-
-            async def do_cancel():
-                await _render_detail(container, person, current_user, state)
-
-            ui.button(t("cancel"), on_click=do_cancel).props("flat dense")
+    is_ldap = person.auth_method == AuthMethod.LDAP and person.ldap_dn
+    if is_ldap:
+        await _prompt_ad_credentials_then_edit(container, person, current_user, state)
+    else:
+        await _render_edit_form(container, person, current_user, state,
+                                ad_writable=None, ad_credentials=None)
 
 
-async def _finish_save(container, person, current_user, state):
-    ui.notify(t("saved"), color="positive")
-    people = await _load_people()
-    updated = next((p for p in people if p.id == person.id), person)
-    await _render_detail(container, updated, current_user, state)
-
-
-async def _prompt_ad_credentials_and_save(
-    container, person, current_user, state,
-    diff, ad_changes, local_updates, *, is_own,
-):
+async def _prompt_ad_credentials_then_edit(container, person, current_user, state):
+    """Ask for AD credentials, query writable attributes, then show the edit form."""
     from not_dot_net.backend.auth.ldap import (
-        ldap_config, get_ldap_connect, ldap_modify_user, LdapModifyError,
+        ldap_config, get_ldap_connect, ldap_get_writable_attributes, LdapModifyError,
     )
 
+    is_own = person.id == current_user.id
     dialog = ui.dialog()
     with dialog, ui.card():
         if is_own:
@@ -357,9 +274,8 @@ async def _prompt_ad_credentials_and_save(
                 return
             cfg = await ldap_config.get()
             try:
-                ldap_modify_user(
+                writable = ldap_get_writable_attributes(
                     dn=person.ldap_dn,
-                    changes=ad_changes,
                     bind_username=bind_user,
                     bind_password=password_input.value,
                     ldap_cfg=cfg,
@@ -371,12 +287,119 @@ async def _prompt_ad_credentials_and_save(
                     t("ad_bind_failed") if "bind" in msg.lower() else t("ad_write_failed", error=msg)
                 )
                 return
-            await _update_user(person.id, diff)
             dialog.close()
+            await _render_edit_form(
+                container, person, current_user, state,
+                ad_writable=writable,
+                ad_credentials=(bind_user, password_input.value),
+            )
+
+        with ui.row():
+            ui.button(t("submit"), on_click=submit).props("flat color=primary")
+            async def do_cancel():
+                dialog.close()
+                await _render_detail(container, person, current_user, state)
+            ui.button(t("cancel"), on_click=do_cancel).props("flat")
+
+    dialog.open()
+
+
+def _is_ad_writable(field_name: str, ad_writable: set[str] | None) -> bool:
+    """Check if a local field is writable in AD. None means no AD restriction."""
+    if ad_writable is None:
+        return True
+    ad_attr = AD_ATTR_MAP.get(field_name)
+    if ad_attr is None:
+        return True
+    return ad_attr in ad_writable
+
+
+async def _render_edit_form(container, person: User, current_user: User, state: dict,
+                            *, ad_writable: set[str] | None, ad_credentials: tuple | None):
+    container.clear()
+    is_admin = await has_permissions(current_user, "manage_users")
+
+    with container:
+        ui.separator()
+
+        fields = {}
+
+        def _add_field(name, label, value, *, readonly=False):
+            widget = ui.input(label, value=value).props("outlined dense")
+            if readonly or not _is_ad_writable(name, ad_writable):
+                widget.props("readonly")
+                widget.classes("opacity-60")
+            fields[name] = widget
+
+        if is_admin:
+            _add_field("full_name", t("full_name"), person.full_name or "")
+            _add_field("email", t("email"), person.email)
+            _add_field("team", t("team"), person.team or "")
+            _add_field("employment_status", t("status"), person.employment_status or "")
+            _add_field("title", t("title"), person.title or "")
+            _add_field("start_date", t("start_date"),
+                       str(person.start_date) if person.start_date else "")
+            _add_field("end_date", t("end_date"),
+                       str(person.end_date) if person.end_date else "")
+
+        _add_field("phone", t("phone"), person.phone or "")
+        _add_field("office", t("office"), person.office or "")
+        _add_field("company", t("company"), person.company or "")
+        _add_field("description", t("description"), person.description or "")
+        _add_field("webpage", t("webpage"), person.webpage or "")
+
+        async def save():
+            submitted = {}
+            for k, v in fields.items():
+                if not _is_ad_writable(k, ad_writable):
+                    continue
+                val = v.value or None
+                if k in ("start_date", "end_date") and val:
+                    val = date.fromisoformat(val)
+                submitted[k] = val
+
+            current = {k: getattr(person, k) for k in submitted}
+            diff = compute_update_diff(current, submitted)
+            if not diff:
+                ui.notify(t("saved"), color="positive")
+                return
+
+            ad_changes, local_updates = classify_updates(diff)
+            needs_ad_write = bool(ad_changes) and person.auth_method == AuthMethod.LDAP
+
+            if needs_ad_write and ad_credentials:
+                from not_dot_net.backend.auth.ldap import (
+                    ldap_config, get_ldap_connect, ldap_modify_user, LdapModifyError,
+                )
+                cfg = await ldap_config.get()
+                bind_user, bind_pass = ad_credentials
+                try:
+                    ldap_modify_user(
+                        dn=person.ldap_dn,
+                        changes=ad_changes,
+                        bind_username=bind_user,
+                        bind_password=bind_pass,
+                        ldap_cfg=cfg,
+                        connect=get_ldap_connect(),
+                    )
+                except LdapModifyError as e:
+                    ui.notify(t("ad_write_failed", error=str(e)), color="negative")
+                    return
+
+            await _update_user(person.id, diff)
             await _finish_save(container, person, current_user, state)
 
         with ui.row():
-            ui.button(t("save"), on_click=submit).props("flat color=primary")
-            ui.button(t("cancel"), on_click=dialog.close).props("flat")
+            ui.button(t("save"), on_click=save).props("flat dense color=primary")
 
-    dialog.open()
+            async def do_cancel():
+                await _render_detail(container, person, current_user, state)
+
+            ui.button(t("cancel"), on_click=do_cancel).props("flat dense")
+
+
+async def _finish_save(container, person, current_user, state):
+    ui.notify(t("saved"), color="positive")
+    people = await _load_people()
+    updated = next((p for p in people if p.id == person.id), person)
+    await _render_detail(container, updated, current_user, state)

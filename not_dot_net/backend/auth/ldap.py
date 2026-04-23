@@ -257,6 +257,31 @@ class LdapModifyError(Exception):
     """Raised when an AD modify fails (bind, permissions, or server error)."""
 
 
+def ldap_get_writable_attributes(
+    dn: str,
+    bind_username: str,
+    bind_password: str,
+    ldap_cfg: LdapConfig,
+    connect: Callable[..., Connection] = default_ldap_connect,
+) -> set[str]:
+    """Return the set of AD attribute names the bound user can write on `dn`."""
+    try:
+        conn = connect(ldap_cfg, bind_username, bind_password)
+    except LDAPBindError as e:
+        raise LdapModifyError(f"LDAP bind failed: {e}") from e
+    except LDAPException as e:
+        raise LdapModifyError(f"LDAP connection error: {e}") from e
+    try:
+        conn.search(dn, "(objectClass=*)", attributes=["allowedAttributesEffective"])
+        if not conn.entries:
+            return set()
+        attr = conn.entries[0].allowedAttributesEffective
+        values = attr.values if hasattr(attr, "values") else (attr.value or [])
+        return {str(v) for v in values} if values else set()
+    finally:
+        conn.unbind()
+
+
 def ldap_modify_user(
     dn: str,
     changes: dict[str, str | None],
