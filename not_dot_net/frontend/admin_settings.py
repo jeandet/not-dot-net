@@ -66,24 +66,31 @@ async def _render_form(prefix, cfg_section, current, user):
         annotation = field_info.annotation
         value = data.get(field_name, field_info.default)
 
+        hint = field_info.description
+
         if annotation is bool:
-            inputs[field_name] = ui.switch(field_name, value=value)
+            widget = ui.switch(field_name, value=value)
         elif _is_enum(annotation):
             options = {m.value: m.value for m in annotation}
-            inputs[field_name] = ui.select(
+            widget = ui.select(
                 options, label=field_name, value=value,
             ).classes("w-full")
         elif annotation is int:
-            inputs[field_name] = ui.number(field_name, value=value)
+            widget = ui.number(field_name, value=value)
         elif annotation is str:
-            inputs[field_name] = ui.input(field_name, value=value).classes("w-full")
+            widget = ui.input(field_name, value=value).classes("w-full")
         elif annotation == list[str]:
-            inputs[field_name] = ui.input(
+            widget = ui.input(
                 field_name,
                 value=", ".join(value) if isinstance(value, list) else str(value),
-            ).classes("w-full").tooltip("Comma-separated values")
+            ).classes("w-full")
+            hint = hint or "Comma-separated values"
         else:
-            inputs[field_name] = ui.input(field_name, value=str(value)).classes("w-full")
+            widget = ui.input(field_name, value=str(value)).classes("w-full")
+
+        if hint:
+            widget.tooltip(hint)
+        inputs[field_name] = widget
 
     async def save():
         update = {}

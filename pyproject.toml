@@ -37,6 +37,7 @@ dependencies = [
     "sqlalchemy>=2.0.0",
     "databases[sqlite]>=0.7.0",
     "ldap3",
+    "dnspython",
     "pydantic",
     "fastapi-users[sqlalchemy]",
     "aiosqlite",

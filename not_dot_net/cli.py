@@ -125,10 +125,13 @@ async def _test_ldap(username: str, password: str):
     init_db(database_url)
 
     cfg = await ldap_config.get()
-    print(f"LDAP config: url={cfg.url} effective_url={cfg.effective_url} domain={cfg.domain}")
+    print(f"LDAP config: url={cfg.url!r} domain={cfg.domain}")
     print(f"  base_dn={cfg.base_dn} port={cfg.port} tls_mode={cfg.tls_mode}")
     print(f"  tls_verify={cfg.tls_verify}")
     print(f"  auto_provision={cfg.auto_provision} user_filter={cfg.user_filter!r}")
+    urls = cfg.effective_urls
+    source = "DNS SRV" if not cfg.url.strip() else "config"
+    print(f"  resolved servers ({source}): {urls}")
 
     print(f"\nStep 1: LDAP bind as '{username}@{cfg.domain}'...")
     try:

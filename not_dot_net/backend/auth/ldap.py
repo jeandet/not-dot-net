@@ -6,10 +6,10 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
 
-from ldap3 import Server, Connection, ALL, Tls, MODIFY_REPLACE
+from ldap3 import Server, ServerPool, Connection, ALL, Tls, MODIFY_REPLACE, ROUND_ROBIN
 from ldap3.core.exceptions import LDAPBindError, LDAPException
 from ldap3.utils.conv import escape_filter_chars
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from not_dot_net.backend.app_config import section
 
@@ -44,7 +44,10 @@ class TlsMode(str, Enum):
 
 
 class LdapConfig(BaseModel):
-    url: str = "ldap://localhost"
+    url: str = Field(
+        default="",
+        description="Server URL(s), comma-separated. Leave empty to auto-discover from domain via DNS SRV.",
+    )
     domain: str = "example.com"
     base_dn: str = "dc=example,dc=com"
     port: int = 389
@@ -54,12 +57,23 @@ class LdapConfig(BaseModel):
     auto_provision: bool = True
 
     @property
+    def effective_urls(self) -> list[str]:
+        """Resolved server URLs — from config or DNS SRV auto-discovery."""
+        raw = self.url.strip()
+        if not raw:
+            return _discover_servers_from_dns(self.domain, self.tls_mode)
+        urls = [u.strip() for u in raw.split(",") if u.strip()]
+        scheme = "ldaps" if self.tls_mode == TlsMode.LDAPS else "ldap"
+        return [
+            u if u.startswith(("ldap://", "ldaps://")) else f"{scheme}://{u}"
+            for u in urls
+        ]
+
+    @property
     def effective_url(self) -> str:
-        url = self.url.strip()
-        if not url.startswith(("ldap://", "ldaps://")):
-            scheme = "ldaps" if self.tls_mode == TlsMode.LDAPS else "ldap"
-            url = f"{scheme}://{url}"
-        return url
+        """First resolved URL (for display / backwards compat)."""
+        urls = self.effective_urls
+        return urls[0] if urls else f"ldap://{self.domain}"
 
 
 ldap_config = section("ldap", LdapConfig, label="LDAP / Active Directory")
@@ -88,6 +102,21 @@ class LdapUserInfo:
     gid_number: int | None = None
 
 
+def _discover_servers_from_dns(domain: str, tls_mode: TlsMode) -> list[str]:
+    """Discover AD domain controllers via DNS SRV records."""
+    import dns.resolver
+
+    service = "_ldaps._tcp" if tls_mode == TlsMode.LDAPS else "_ldap._tcp"
+    scheme = "ldaps" if tls_mode == TlsMode.LDAPS else "ldap"
+    try:
+        answers = dns.resolver.resolve(f"{service}.{domain}", "SRV")
+        records = sorted(answers, key=lambda r: (r.priority, -r.weight))
+        return [f"{scheme}://{r.target.to_text().rstrip('.')}" for r in records]
+    except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer, dns.resolver.NoNameservers):
+        logger.info("DNS SRV lookup for %s.%s failed, falling back to domain name", service, domain)
+        return [f"{scheme}://{domain}"]
+
+
 def _build_tls(ldap_cfg: LdapConfig) -> Tls | None:
     if ldap_cfg.tls_mode == TlsMode.NONE:
         return None
@@ -95,16 +124,28 @@ def _build_tls(ldap_cfg: LdapConfig) -> Tls | None:
     return Tls(validate=validate)
 
 
+def _build_server_or_pool(ldap_cfg: LdapConfig) -> Server | ServerPool:
+    """Build a Server (single URL) or ServerPool (multiple URLs / SRV discovery)."""
+    use_ssl = ldap_cfg.tls_mode == TlsMode.LDAPS
+    tls = _build_tls(ldap_cfg)
+    urls = ldap_cfg.effective_urls
+    if not urls:
+        raise LDAPException(f"No LDAP servers found for domain '{ldap_cfg.domain}'")
+    servers = [Server(url, port=ldap_cfg.port, use_ssl=use_ssl, tls=tls, get_info=ALL) for url in urls]
+    if len(servers) == 1:
+        return servers[0]
+    pool = ServerPool(servers, ROUND_ROBIN, active=True, exhaust=True)
+    return pool
+
+
 def default_ldap_connect(ldap_cfg: LdapConfig, username: str, password: str) -> Connection:
     """Create and bind an AD connection using user@domain.
 
     Supports plain LDAP, LDAPS (TLS on connect), and StartTLS (upgrade after connect).
+    Uses ServerPool for failover when multiple servers are configured or discovered via DNS.
     """
-    use_ssl = ldap_cfg.tls_mode == TlsMode.LDAPS
-    tls = _build_tls(ldap_cfg)
-    server = Server(ldap_cfg.effective_url, port=ldap_cfg.port, use_ssl=use_ssl, tls=tls, get_info=ALL)
+    server = _build_server_or_pool(ldap_cfg)
     bind_user = f"{username}@{ldap_cfg.domain}"
-
     auto_bind = "TLS_BEFORE_BIND" if ldap_cfg.tls_mode == TlsMode.START_TLS else True
     return Connection(server, user=bind_user, password=password, auto_bind=auto_bind)
 

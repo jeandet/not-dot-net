@@ -80,27 +80,80 @@ def test_user_without_mail_falls_back_to_upn():
     assert result.email == "upnonly@example.com"
 
 
-class TestEffectiveUrl:
+class TestEffectiveUrls:
     def test_bare_hostname_gets_ldap_scheme(self):
         cfg = LdapConfig(url="dc01.example.com")
-        assert cfg.effective_url == "ldap://dc01.example.com"
+        assert cfg.effective_urls == ["ldap://dc01.example.com"]
 
     def test_bare_hostname_gets_ldaps_when_tls_ldaps(self):
         from not_dot_net.backend.auth.ldap import TlsMode
         cfg = LdapConfig(url="dc01.example.com", tls_mode=TlsMode.LDAPS)
-        assert cfg.effective_url == "ldaps://dc01.example.com"
+        assert cfg.effective_urls == ["ldaps://dc01.example.com"]
 
     def test_full_url_unchanged(self):
         cfg = LdapConfig(url="ldap://dc01.example.com")
-        assert cfg.effective_url == "ldap://dc01.example.com"
+        assert cfg.effective_urls == ["ldap://dc01.example.com"]
 
     def test_ldaps_url_unchanged(self):
         cfg = LdapConfig(url="ldaps://dc01.example.com")
-        assert cfg.effective_url == "ldaps://dc01.example.com"
+        assert cfg.effective_urls == ["ldaps://dc01.example.com"]
 
     def test_whitespace_stripped(self):
         cfg = LdapConfig(url="  dc01.example.com  ")
+        assert cfg.effective_urls == ["ldap://dc01.example.com"]
+
+    def test_multiple_urls_comma_separated(self):
+        cfg = LdapConfig(url="dc01.example.com, dc02.example.com")
+        assert cfg.effective_urls == ["ldap://dc01.example.com", "ldap://dc02.example.com"]
+
+    def test_multiple_urls_mixed_schemes(self):
+        cfg = LdapConfig(url="ldap://dc01.example.com, dc02.example.com")
+        assert cfg.effective_urls == ["ldap://dc01.example.com", "ldap://dc02.example.com"]
+
+    def test_effective_url_returns_first(self):
+        cfg = LdapConfig(url="dc01.example.com, dc02.example.com")
         assert cfg.effective_url == "ldap://dc01.example.com"
+
+    def test_empty_url_triggers_dns_discovery(self):
+        from unittest.mock import patch, MagicMock
+        from not_dot_net.backend.auth.ldap import TlsMode
+
+        mock_record = MagicMock()
+        mock_record.target.to_text.return_value = "dc01.corp.local."
+        mock_record.priority = 0
+        mock_record.weight = 100
+        mock_record2 = MagicMock()
+        mock_record2.target.to_text.return_value = "dc02.corp.local."
+        mock_record2.priority = 10
+        mock_record2.weight = 50
+
+        with patch("dns.resolver.resolve", return_value=[mock_record2, mock_record]):
+            cfg = LdapConfig(url="", domain="corp.local")
+            urls = cfg.effective_urls
+        assert urls == ["ldap://dc01.corp.local", "ldap://dc02.corp.local"]
+
+    def test_empty_url_ldaps_uses_ldaps_srv(self):
+        from unittest.mock import patch, MagicMock, call
+        from not_dot_net.backend.auth.ldap import TlsMode
+
+        mock_record = MagicMock()
+        mock_record.target.to_text.return_value = "dc01.corp.local."
+        mock_record.priority = 0
+        mock_record.weight = 100
+
+        with patch("dns.resolver.resolve", return_value=[mock_record]) as mock_resolve:
+            cfg = LdapConfig(url="", domain="corp.local", tls_mode=TlsMode.LDAPS)
+            urls = cfg.effective_urls
+        mock_resolve.assert_called_once_with("_ldaps._tcp.corp.local", "SRV")
+        assert urls == ["ldaps://dc01.corp.local"]
+
+    def test_empty_url_dns_failure_falls_back_to_domain(self):
+        from unittest.mock import patch
+        import dns.resolver
+
+        with patch("dns.resolver.resolve", side_effect=dns.resolver.NXDOMAIN):
+            cfg = LdapConfig(url="", domain="corp.local")
+            assert cfg.effective_urls == ["ldap://corp.local"]
 
 
 def test_authentication_returns_dn_and_extended_attrs():
