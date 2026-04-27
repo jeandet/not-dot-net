@@ -230,4 +230,8 @@ async def _resolve_options(options_key: str | None) -> list[str]:
         from not_dot_net.config import org_config
         cfg = await org_config.get()
         return cfg.employment_statuses
+    if options_key == "employers":
+        from not_dot_net.config import org_config
+        cfg = await org_config.get()
+        return cfg.employers
     return []
