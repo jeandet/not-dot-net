@@ -21,6 +21,24 @@ DEV_DB_URL = "sqlite+aiosqlite:///./dev.db"
 DEV_ADMIN_EMAIL = "admin@not-dot-net.dev"
 DEV_ADMIN_PASSWORD = "admin"
 
+logger = logging.getLogger("not_dot_net.app")
+
+
+def _lock_socketio_cors():
+    """Restrict NiceGUI's Socket.IO CORS to same-origin only.
+
+    NiceGUI hardcodes cors_allowed_origins='*' for its On Air feature.
+    We don't use On Air, so lock it down to reject cross-origin WebSocket
+    upgrades and XHR polling from foreign origins.
+    """
+    from nicegui import core
+    allowed = os.environ.get("ALLOWED_ORIGINS", "").split(",")
+    allowed = [o.strip() for o in allowed if o.strip()]
+    if not allowed:
+        allowed = []
+    core.sio.eio.cors_allowed_origins = allowed
+    logger.info("Socket.IO CORS locked to: %s", allowed or "(same-origin only)")
+
 
 def create_app(
     secrets_file: str = "./secrets.key",
@@ -41,6 +59,7 @@ def create_app(
 
     if not dev_mode:
         run_upgrade(database_url)
+        _lock_socketio_cors()
 
     async def startup():
         if dev_mode:
