@@ -217,7 +217,18 @@ async def _render_action_panel(container, user, req, step_config, wf, request_id
                 ui.notify(t("step_submitted"), color="positive")
                 ui.navigate.to(f"/workflow/request/{request_id_str}")
 
-            render_approval(req.data, wf, step_config, handle_approve, handle_reject)
+            async def handle_corrections(comment):
+                try:
+                    await submit_step(req.id, user.id, "request_corrections", comment=comment, actor_user=user)
+                except Exception as e:
+                    ui.notify(str(e), color="negative")
+                    return
+                ui.notify("Corrections requested", color="positive")
+                ui.navigate.to(f"/workflow/request/{request_id_str}")
+
+            corrections_fn = handle_corrections if step_config.corrections_target else None
+
+            render_approval(req.data, wf, step_config, handle_approve, handle_reject, corrections_fn)
 
         elif step_config.type == "form":
             async def handle_submit(data):

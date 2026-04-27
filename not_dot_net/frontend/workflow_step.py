@@ -106,8 +106,9 @@ def render_approval(
     step: WorkflowStepConfig,
     on_approve,
     on_reject,
+    on_request_corrections=None,
 ):
-    """Render approval view: read-only data + approve/reject."""
+    """Render approval view: read-only data + approve/reject/corrections."""
     ui.label(workflow.label).classes("text-h6")
 
     for key, value in request_data.items():
@@ -122,6 +123,12 @@ def render_approval(
             icon="check",
             on_click=lambda: on_approve(comment_input.value),
         ).props("color=positive")
+        if on_request_corrections:
+            ui.button(
+                "Request Corrections",
+                icon="edit_note",
+                on_click=lambda: on_request_corrections(comment_input.value),
+            ).props("color=warning")
         ui.button(
             t("reject"),
             icon="close",
