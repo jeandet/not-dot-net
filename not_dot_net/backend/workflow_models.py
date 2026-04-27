@@ -33,6 +33,9 @@ class WorkflowRequest(MappedAsDataclass, Base, kw_only=True):
     updated_at: Mapped[datetime] = mapped_column(
         server_default=func.now(), onupdate=func.now(), default=None
     )
+    verification_code_hash: Mapped[str | None] = mapped_column(String(255), nullable=True, default=None)
+    code_expires_at: Mapped[datetime | None] = mapped_column(nullable=True, default=None)
+    code_attempts: Mapped[int] = mapped_column(default=0)
 
 
 class WorkflowEvent(MappedAsDataclass, Base, kw_only=True):
