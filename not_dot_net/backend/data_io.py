@@ -9,8 +9,9 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
 from not_dot_net.backend.booking_models import Resource
-from not_dot_net.backend.db import session_scope
+from not_dot_net.backend.db import session_scope, User
 from not_dot_net.backend.page_models import Page
+from not_dot_net.backend.tenure_service import UserTenure
 
 
 def _serialize_page(p: Page) -> dict:
@@ -46,13 +47,44 @@ async def export_resources() -> list[dict]:
         return [_serialize_resource(r) for r in result.scalars().all()]
 
 
+def _serialize_tenure(t: UserTenure, email: str) -> dict:
+    return {
+        "user_email": email,
+        "status": t.status,
+        "employer": t.employer,
+        "start_date": t.start_date.isoformat(),
+        "end_date": t.end_date.isoformat() if t.end_date else None,
+        "notes": t.notes,
+    }
+
+
+async def export_tenures() -> list[dict]:
+    async with session_scope() as session:
+        result = await session.execute(
+            select(UserTenure).order_by(UserTenure.user_id, UserTenure.start_date)
+        )
+        tenures = result.scalars().all()
+        user_ids = {t.user_id for t in tenures}
+        if user_ids:
+            users_result = await session.execute(
+                select(User.id, User.email).where(User.id.in_(user_ids))
+            )
+            email_map = {uid: email for uid, email in users_result.all()}
+        else:
+            email_map = {}
+        return [_serialize_tenure(t, email_map.get(t.user_id, "unknown")) for t in tenures]
+
+
 async def export_all() -> dict:
-    pages, resources = await asyncio.gather(export_pages(), export_resources())
+    pages, resources, tenures = await asyncio.gather(
+        export_pages(), export_resources(), export_tenures(),
+    )
     return {
         "version": 1,
         "exported_at": datetime.now(UTC).isoformat(),
         "pages": pages,
         "resources": resources,
+        "tenures": tenures,
     }
 
 
@@ -124,10 +156,41 @@ async def import_resources(data: list[dict], *, replace: bool = False) -> dict[s
     return {"created": created, "updated": updated, "skipped": skipped}
 
 
+async def import_tenures(data: list[dict], *, replace: bool = False) -> dict[str, int]:
+    from datetime import date as dt_date
+    created, skipped = 0, 0
+    async with session_scope() as session:
+        for item in data:
+            email = item.get("user_email", "").strip()
+            if not email:
+                skipped += 1
+                continue
+            user_result = await session.execute(
+                select(User).where(User.email == email)
+            )
+            user = user_result.scalar_one_or_none()
+            if user is None:
+                skipped += 1
+                continue
+            session.add(UserTenure(
+                user_id=user.id,
+                status=item["status"],
+                employer=item["employer"],
+                start_date=dt_date.fromisoformat(item["start_date"]),
+                end_date=dt_date.fromisoformat(item["end_date"]) if item.get("end_date") else None,
+                notes=item.get("notes"),
+            ))
+            created += 1
+        await session.commit()
+    return {"created": created, "skipped": skipped}
+
+
 async def import_all(data: dict, *, replace: bool = False) -> dict:
     result = {}
     if "pages" in data:
         result["pages"] = await import_pages(data["pages"], replace=replace)
     if "resources" in data:
         result["resources"] = await import_resources(data["resources"], replace=replace)
+    if "tenures" in data:
+        result["tenures"] = await import_tenures(data["tenures"], replace=replace)
     return result

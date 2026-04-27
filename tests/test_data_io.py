@@ -1,12 +1,30 @@
 """Tests for import/export of pages and resources."""
 
+import uuid
+
 from not_dot_net.backend.data_io import (
     export_all, export_pages, export_resources,
     import_all, import_pages, import_resources,
 )
 from not_dot_net.backend.page_models import Page
 from not_dot_net.backend.booking_models import Resource
-from not_dot_net.backend.db import session_scope
+from not_dot_net.backend.db import session_scope, User
+
+
+async def _create_user(email: str) -> User:
+    async with session_scope() as session:
+        user = User(
+            id=uuid.uuid4(),
+            email=email,
+            hashed_password="x",
+            is_active=True,
+            is_verified=True,
+            is_superuser=False,
+        )
+        session.add(user)
+        await session.commit()
+        await session.refresh(user)
+        return user
 
 
 async def _seed_page(title="Test", slug="test", content="# Hello", published=True):
@@ -121,3 +139,43 @@ async def test_import_all_roundtrip():
     result = await import_all(exported)
     assert result["pages"]["created"] == 1
     assert result["resources"]["created"] == 1
+
+
+async def test_export_includes_tenures():
+    from not_dot_net.backend.data_io import export_all
+    from not_dot_net.backend.tenure_service import add_tenure
+    from datetime import date
+
+    user = await _create_user("tenure-export@test.com")
+    await add_tenure(
+        user_id=user.id, status="PhD", employer="CNRS",
+        start_date=date(2025, 9, 1),
+    )
+    data = await export_all()
+    assert "tenures" in data
+    assert len(data["tenures"]) == 1
+    assert data["tenures"][0]["status"] == "PhD"
+    assert data["tenures"][0]["employer"] == "CNRS"
+
+
+async def test_import_tenures():
+    from not_dot_net.backend.data_io import import_all
+    from not_dot_net.backend.tenure_service import list_tenures
+
+    user = await _create_user("import-tenure@test.com")
+    data = {
+        "tenures": [
+            {
+                "user_email": "import-tenure@test.com",
+                "status": "Intern",
+                "employer": "Polytechnique",
+                "start_date": "2025-03-01",
+                "end_date": "2025-08-31",
+            }
+        ],
+    }
+    result = await import_all(data)
+    assert result["tenures"]["created"] == 1
+    tenures = await list_tenures(user.id)
+    assert len(tenures) == 1
+    assert tenures[0].employer == "Polytechnique"
