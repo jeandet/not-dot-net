@@ -19,7 +19,7 @@ async def render_step_form(
     """Render a form step's fields. Returns dict of field name -> ui element."""
     fields = {}
     for field_cfg in step.fields:
-        label = field_cfg.label or field_cfg.name
+        label = t(field_cfg.label) if field_cfg.label else field_cfg.name
         value = data.get(field_cfg.name, "")
 
         if field_cfg.type == "textarea":
@@ -78,7 +78,7 @@ async def render_step_form(
         async def validated_submit():
             collected = _collect_data(fields)
             missing = [
-                f.label or f.name for f in step.fields
+                t(f.label) if f.label else f.name for f in step.fields
                 if f.required and f.type != "file" and not collected.get(f.name)
             ]
             if missing:

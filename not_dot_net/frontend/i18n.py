@@ -48,6 +48,19 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         # Common
         "name": "Name",
         "submit": "Submit",
+        # Workflow field labels
+        "contact_email": "Contact Email",
+        "first_name": "First Name",
+        "last_name": "Last Name",
+        "address": "Address",
+        "emergency_contact": "Emergency Contact",
+        "id_document": "ID Document",
+        "bank_details": "Bank Details (RIB)",
+        "photo": "Photo",
+        "notes": "Notes",
+        "target_name": "Person Name",
+        "target_email": "Person Email",
+        "justification": "Justification",
         # Workflow
         "dashboard": "Dashboard",
         "new_request": "New Request",
@@ -251,6 +264,19 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         # Common
         "name": "Nom",
         "submit": "Envoyer",
+        # Workflow field labels
+        "contact_email": "E-mail de contact",
+        "first_name": "Prénom",
+        "last_name": "Nom de famille",
+        "address": "Adresse",
+        "emergency_contact": "Contact d'urgence",
+        "id_document": "Pièce d'identité",
+        "bank_details": "RIB",
+        "photo": "Photo",
+        "notes": "Remarques",
+        "target_name": "Nom de la personne",
+        "target_email": "E-mail de la personne",
+        "justification": "Justification",
         # Workflow
         "dashboard": "Tableau de bord",
         "new_request": "Nouvelle demande",
