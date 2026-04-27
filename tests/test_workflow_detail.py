@@ -42,7 +42,7 @@ async def _setup_roles():
 
 async def test_can_view_request_creator():
     """Request creator can view their own request."""
-    from not_dot_net.backend.workflow_file_routes import can_view_request
+    from not_dot_net.backend.workflow_service import can_view_request
     await _setup_roles()
     staff = await _create_user(email="creator@test.com", role="staff")
     req = await create_request(
@@ -55,7 +55,7 @@ async def test_can_view_request_creator():
 
 async def test_can_view_request_admin():
     """Admin with view_audit_log can view any request."""
-    from not_dot_net.backend.workflow_file_routes import can_view_request
+    from not_dot_net.backend.workflow_service import can_view_request
     await _setup_roles()
     staff = await _create_user(email="creator2@test.com", role="staff")
     admin = await _create_user(email="admin2@test.com", role="admin")
@@ -69,7 +69,7 @@ async def test_can_view_request_admin():
 
 async def test_cannot_view_request_unrelated():
     """Unrelated user without permissions cannot view."""
-    from not_dot_net.backend.workflow_file_routes import can_view_request
+    from not_dot_net.backend.workflow_service import can_view_request
     await _setup_roles()
     staff = await _create_user(email="creator3@test.com", role="staff")
     other = await _create_user(email="other3@test.com", role="member")

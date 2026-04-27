@@ -86,6 +86,11 @@ class TestNoPublicRestApi:
     def test_auth_local_jwt_endpoint_not_mounted(self):
         assert "/auth/local" not in self._routes()
 
+    def test_workflow_file_endpoint_removed(self):
+        """The HTTP file download endpoint should not exist."""
+        paths = self._routes()
+        assert not any(p and p.startswith("/workflow/file/") for p in paths)
+
 
 class TestEmailCollision:
     """LDAP auth must not hijack a local account that shares the same email."""

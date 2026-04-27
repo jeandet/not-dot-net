@@ -543,3 +543,17 @@ async def resolve_actor_names(actor_ids) -> dict[uuid.UUID, str]:
             .where(UserModel.id.in_(unique_ids))
         )
         return {row.id: row.full_name or row.email for row in result.all()}
+
+
+async def can_view_request(user, req: WorkflowRequest) -> bool:
+    """Check if user is allowed to view this request."""
+    from not_dot_net.backend.workflow_engine import can_user_act
+    if str(user.id) == str(req.created_by):
+        return True
+    if await has_permissions(user, "view_audit_log"):
+        return True
+    cfg = await workflows_config.get()
+    wf = cfg.workflows.get(req.type)
+    if wf and await can_user_act(user, req, wf):
+        return True
+    return False

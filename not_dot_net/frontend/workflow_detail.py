@@ -9,9 +9,9 @@ from nicegui import ui
 from not_dot_net.backend.db import User, session_scope
 from not_dot_net.backend.users import current_active_user_optional
 from not_dot_net.backend.workflow_engine import can_user_act, get_current_step_config
-from not_dot_net.backend.workflow_file_routes import can_view_request
 from not_dot_net.backend.workflow_models import WorkflowFile
 from not_dot_net.backend.workflow_service import (
+    can_view_request,
     compute_step_age_days,
     get_request_by_id,
     list_events,
@@ -85,7 +85,7 @@ def setup():
 
             ui.separator().classes("my-4")
 
-            _render_timeline(events, actor_names, files_by_step)
+            _render_timeline(events, actor_names, files_by_step, user)
 
             if step_config and req.status == "in_progress":
                 can_act = await can_user_act(user, req, wf)
@@ -129,7 +129,7 @@ def _render_header(req, wf, age_days, dash_cfg, actor_names):
                 render_urgency_badge(age_days, dash_cfg.urgency_fresh_days, dash_cfg.urgency_aging_days)
 
 
-def _render_timeline(events, actor_names, files_by_step):
+def _render_timeline(events, actor_names, files_by_step, user):
     with ui.element("div").classes("relative ml-2 pl-5").style(
         "border-left: 2px solid #e0e0e0"
     ):
@@ -165,11 +165,29 @@ def _render_timeline(events, actor_names, files_by_step):
                 step_files = files_by_step.get(ev.step_key, [])
                 if step_files and ev.action in ("submit", "save_draft"):
                     for f in step_files:
-                        ui.link(
-                            f"📎 {f.filename}",
-                            f"/workflow/file/{f.id}",
-                            new_tab=True,
-                        ).classes("text-xs")
+                        if f.encrypted_file_id:
+                            async def download_encrypted(fid=f.encrypted_file_id, fname=f.filename):
+                                from not_dot_net.backend.permissions import has_permissions
+                                if not await has_permissions(user, "access_personal_data"):
+                                    ui.notify("Access denied", color="negative")
+                                    return
+                                from not_dot_net.backend.encrypted_storage import read_encrypted
+                                data, name, ctype = await read_encrypted(
+                                    fid, actor_id=user.id, actor_email=user.email,
+                                )
+                                ui.download(data, name)
+                            ui.button(
+                                f"📎 {f.filename}", on_click=download_encrypted,
+                            ).props("flat dense size=sm")
+                        else:
+                            from pathlib import Path
+                            async def download_plain(fp=f.storage_path, fname=f.filename):
+                                path = Path(fp)
+                                if path.exists():
+                                    ui.download(path.read_bytes(), fname)
+                            ui.button(
+                                f"📎 {f.filename}", on_click=download_plain,
+                            ).props("flat dense size=sm")
 
 
 async def _render_action_panel(container, user, req, step_config, wf, request_id_str):
