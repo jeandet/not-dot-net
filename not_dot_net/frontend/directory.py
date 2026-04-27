@@ -15,6 +15,15 @@ from not_dot_net.backend.auth.ldap import AD_ATTR_MAP
 MANAGE_USERS = permission("manage_users", "Manage users", "Edit/delete users in directory")
 
 
+def _serialize_value(v) -> str | None:
+    """Convert a value to a JSON-friendly string for audit logging."""
+    if v is None:
+        return None
+    if isinstance(v, date):
+        return v.isoformat()
+    return str(v)
+
+
 def classify_updates(updates: dict) -> tuple[dict[str, str | None], dict]:
     """Split a user-update dict into (AD attribute changes, local-only DB updates).
 
@@ -397,6 +406,19 @@ async def _render_edit_form(container, person: User, current_user: User, state: 
                         return
 
             await _update_user(person.id, diff)
+            from not_dot_net.backend.audit import log_audit
+            current_values = {k: getattr(person, k) for k in diff}
+            changes = {
+                k: {"old": _serialize_value(current_values.get(k)), "new": _serialize_value(v)}
+                for k, v in diff.items()
+            }
+            await log_audit(
+                "user", "update",
+                actor_id=current_user.id, actor_email=current_user.email,
+                target_type="user", target_id=person.id,
+                detail=f"fields={','.join(diff.keys())}",
+                metadata={"changes": changes},
+            )
             await _finish_save(container, person, current_user, state)
 
         with ui.row():
