@@ -22,6 +22,7 @@ async def setup_db():
     import not_dot_net.backend.booking_models  # noqa: F401
     import not_dot_net.backend.audit  # noqa: F401
     import not_dot_net.backend.app_config  # noqa: F401
+    import not_dot_net.backend.encrypted_storage  # noqa: F401
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
