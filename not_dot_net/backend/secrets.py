@@ -15,12 +15,14 @@ logger = logging.getLogger("not_dot_net.secrets")
 class AppSecrets(BaseModel):
     jwt_secret: str
     storage_secret: str
+    file_encryption_key: str = ""
 
 
 def generate_secrets_file(path: Path) -> AppSecrets:
     app_secrets = AppSecrets(
         jwt_secret=secrets.token_urlsafe(32),
         storage_secret=secrets.token_urlsafe(32),
+        file_encryption_key=secrets.token_urlsafe(32),
     )
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(app_secrets.model_dump(), indent=2))
