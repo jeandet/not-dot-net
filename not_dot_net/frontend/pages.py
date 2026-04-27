@@ -4,7 +4,6 @@ import re
 
 from nicegui import ui
 
-from not_dot_net.frontend import safe_timer
 
 from not_dot_net.backend.db import User
 from not_dot_net.backend.page_service import (
@@ -32,7 +31,7 @@ def render(user: User):
     async def refresh():
         await _render_page_list(container, user)
 
-    safe_timer(0, refresh, once=True)
+    ui.timer(0, refresh, once=True)
 
 
 async def _render_page_list(container, user: User):

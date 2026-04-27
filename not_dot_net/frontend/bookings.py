@@ -5,7 +5,6 @@ from datetime import date, timedelta
 
 from nicegui import ui
 
-from not_dot_net.frontend import safe_timer
 from not_dot_net.backend.booking_service import (
     BookingConflictError,
     BookingValidationError,
@@ -33,7 +32,7 @@ def render(user: User):
     async def refresh():
         await _render_bookings(container, user)
 
-    safe_timer(0, refresh, once=True)
+    ui.timer(0, refresh, once=True)
 
 
 async def _get_user_name(user_id: uuid.UUID) -> str:
@@ -629,4 +628,4 @@ def _show_software_dialog(outer_container, user):
 
         dialog.open()
 
-    safe_timer(0, _load_and_render, once=True)
+    ui.timer(0, _load_and_render, once=True)

@@ -4,7 +4,6 @@ from datetime import date
 from nicegui import ui
 from sqlalchemy import select
 
-from not_dot_net.frontend import safe_timer
 
 from not_dot_net.backend.db import User, AuthMethod, session_scope, get_user_db
 from not_dot_net.backend.schemas import UserUpdate
@@ -96,7 +95,7 @@ def render(current_user: User):
 
     search.on_value_change(lambda _: filter_cards())
 
-    safe_timer(0, refresh, once=True)
+    ui.timer(0, refresh, once=True)
 
 
 def _format_duration(person: User) -> str:

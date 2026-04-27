@@ -5,7 +5,6 @@ from typing import Optional
 from fastapi import Depends
 from nicegui import app, ui
 
-from not_dot_net.frontend import safe_timer
 
 from not_dot_net.backend.db import User
 from not_dot_net.backend.permissions import has_permissions
@@ -135,8 +134,8 @@ def setup():
                 except (RuntimeError, TimeoutError):
                     pass
 
-            safe_timer(60, update_badge)
-            safe_timer(0, update_badge, once=True)
+            ui.timer(60, update_badge)
+            ui.timer(0, update_badge, once=True)
 
         return None
 

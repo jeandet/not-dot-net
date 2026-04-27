@@ -2,7 +2,6 @@
 
 from nicegui import ui
 
-from not_dot_net.frontend import safe_timer
 from not_dot_net.backend.audit import list_audit_events
 from not_dot_net.frontend.i18n import t
 from not_dot_net.backend.permissions import permission
@@ -18,7 +17,7 @@ def render():
     async def refresh():
         await _render_log(container)
 
-    safe_timer(0, refresh, once=True)
+    ui.timer(0, refresh, once=True)
 
 
 async def _render_log(container, category=None, actor_email=None):
