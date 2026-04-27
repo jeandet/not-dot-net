@@ -249,6 +249,10 @@ async def _render_detail(container, person: User, current_user: User, state: dic
                 "flat dense color=negative"
             )
 
+        if is_own or is_admin:
+            ui.separator().classes("my-2")
+            await _render_tenure_history(container, person, current_user, is_admin)
+
 
 async def _render_edit(container, person: User, current_user: User, state: dict):
     is_ldap = person.auth_method == AuthMethod.LDAP and person.ldap_dn
@@ -435,3 +439,155 @@ async def _finish_save(container, person, current_user, state):
     people = await _load_people()
     updated = next((p for p in people if p.id == person.id), person)
     await _render_detail(container, updated, current_user, state)
+
+
+async def _render_tenure_history(parent_container, person: User, current_user: User, is_admin: bool):
+    """Render the employment history timeline for a person."""
+    from not_dot_net.backend.tenure_service import list_tenures as _list_tenures
+
+    tenures = await _list_tenures(person.id)
+
+    with ui.expansion(t("tenure_history"), icon="history").classes("w-full"):
+        tenure_container = ui.column().classes("w-full")
+
+        async def refresh_tenures():
+            nonlocal tenures
+            tenures = await _list_tenures(person.id)
+            tenure_container.clear()
+            with tenure_container:
+                if not tenures:
+                    ui.label(t("no_tenures")).classes("text-sm text-gray-400 italic")
+                for ten in tenures:
+                    _render_tenure_row(ten, is_admin, refresh_tenures, person, current_user)
+
+        if is_admin:
+            async def show_add():
+                await _tenure_add_dialog(person, current_user, refresh_tenures)
+            ui.button(t("add_tenure"), icon="add", on_click=show_add).props("flat dense")
+
+        await refresh_tenures()
+
+
+def _render_tenure_row(tenure, is_admin: bool, on_refresh, person: User, current_user: User):
+    end_label = t("tenure_current") if tenure.end_date is None else str(tenure.end_date)
+    with ui.row().classes("items-center gap-2 w-full"):
+        ui.chip(tenure.status, color="primary").props("dense outline")
+        ui.label(f"{tenure.employer}").classes("text-sm font-medium")
+        ui.label(f"{tenure.start_date} → {end_label}").classes("text-sm text-gray-500")
+        if tenure.notes:
+            ui.icon("info", size="xs").tooltip(tenure.notes)
+        if is_admin:
+            async def do_edit(t_id=tenure.id):
+                await _tenure_edit_dialog(t_id, person, current_user, on_refresh)
+            ui.button(icon="edit", on_click=do_edit).props("flat dense round size=xs")
+
+            async def do_delete(t_id=tenure.id):
+                from not_dot_net.backend.tenure_service import delete_tenure as _del
+                await _del(t_id)
+                from not_dot_net.backend.audit import log_audit
+                await log_audit(
+                    "user", "delete_tenure",
+                    actor_id=current_user.id, actor_email=current_user.email,
+                    target_type="user", target_id=person.id,
+                )
+                ui.notify(t("tenure_deleted"), color="positive")
+                await on_refresh()
+            ui.button(icon="delete", on_click=do_delete).props("flat dense round size=xs color=negative")
+
+
+async def _tenure_add_dialog(person: User, current_user: User, on_refresh):
+    from not_dot_net.backend.tenure_service import add_tenure as _add
+    from not_dot_net.config import org_config
+
+    cfg = await org_config.get()
+
+    dialog = ui.dialog()
+    with dialog, ui.card().classes("w-96"):
+        ui.label(t("add_tenure")).classes("text-h6")
+        status_input = ui.select(cfg.employment_statuses, label=t("status")).props("outlined dense")
+        employer_input = ui.select(cfg.employers, label=t("employer")).props("outlined dense")
+        start_input = ui.input(t("start_date"), placeholder="YYYY-MM-DD").props("outlined dense")
+        end_input = ui.input(t("end_date"), placeholder="YYYY-MM-DD (optional)").props("outlined dense")
+        notes_input = ui.input(t("tenure_notes")).props("outlined dense")
+
+        async def save():
+            if not status_input.value or not employer_input.value or not start_input.value:
+                ui.notify(t("required_field"), color="warning")
+                return
+            start = date.fromisoformat(start_input.value)
+            end = date.fromisoformat(end_input.value) if end_input.value else None
+            await _add(
+                user_id=person.id,
+                status=status_input.value,
+                employer=employer_input.value,
+                start_date=start,
+                end_date=end,
+                notes=notes_input.value or None,
+            )
+            from not_dot_net.backend.audit import log_audit
+            await log_audit(
+                "user", "add_tenure",
+                actor_id=current_user.id, actor_email=current_user.email,
+                target_type="user", target_id=person.id,
+                detail=f"status={status_input.value} employer={employer_input.value}",
+            )
+            dialog.close()
+            ui.notify(t("tenure_saved"), color="positive")
+            await on_refresh()
+
+        with ui.row():
+            ui.button(t("save"), on_click=save).props("flat color=primary")
+            ui.button(t("cancel"), on_click=dialog.close).props("flat")
+
+    dialog.open()
+
+
+async def _tenure_edit_dialog(tenure_id, person: User, current_user: User, on_refresh):
+    from not_dot_net.backend.tenure_service import update_tenure as _update, list_tenures as _list
+    from not_dot_net.config import org_config
+
+    cfg = await org_config.get()
+    tenures = await _list(person.id)
+    tenure = next((ten for ten in tenures if ten.id == tenure_id), None)
+    if tenure is None:
+        return
+
+    dialog = ui.dialog()
+    with dialog, ui.card().classes("w-96"):
+        ui.label(t("edit_tenure")).classes("text-h6")
+        status_input = ui.select(cfg.employment_statuses, value=tenure.status, label=t("status")).props("outlined dense")
+        employer_input = ui.select(cfg.employers, value=tenure.employer, label=t("employer")).props("outlined dense")
+        start_input = ui.input(t("start_date"), value=str(tenure.start_date)).props("outlined dense")
+        end_input = ui.input(t("end_date"), value=str(tenure.end_date) if tenure.end_date else "").props("outlined dense")
+        notes_input = ui.input(t("tenure_notes"), value=tenure.notes or "").props("outlined dense")
+
+        async def save():
+            if not status_input.value or not employer_input.value or not start_input.value:
+                ui.notify(t("required_field"), color="warning")
+                return
+            start = date.fromisoformat(start_input.value)
+            end = date.fromisoformat(end_input.value) if end_input.value else None
+            await _update(
+                tenure_id,
+                status=status_input.value,
+                employer=employer_input.value,
+                start_date=start,
+                end_date=end,
+                notes=notes_input.value or None,
+            )
+            from not_dot_net.backend.audit import log_audit
+            await log_audit(
+                "user", "update_tenure",
+                actor_id=current_user.id, actor_email=current_user.email,
+                target_type="user", target_id=person.id,
+                detail=f"status={status_input.value} employer={employer_input.value}",
+            )
+            dialog.close()
+            ui.notify(t("tenure_saved"), color="positive")
+            await on_refresh()
+
+        with ui.row():
+            ui.button(t("save"), on_click=save).props("flat color=primary")
+            ui.button(t("cancel"), on_click=dialog.close).props("flat")
+
+    dialog.open()
