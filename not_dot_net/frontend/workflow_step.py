@@ -51,16 +51,36 @@ async def render_step_form(
 ):
     """Render a form step's fields. Returns dict of field name -> ui element."""
     fields = {}
+    row_ctx = None
+
+    def _open_row_if_needed(field_cfg):
+        nonlocal row_ctx
+        if field_cfg.half_width:
+            if row_ctx is None:
+                row_ctx = ui.row().classes("w-full gap-4")
+                row_ctx.__enter__()
+        else:
+            _close_row()
+
+    def _close_row():
+        nonlocal row_ctx
+        if row_ctx is not None:
+            row_ctx.__exit__(None, None, None)
+            row_ctx = None
+
     for field_cfg in step.fields:
         label = t(field_cfg.label) if field_cfg.label else field_cfg.name
         value = data.get(field_cfg.name, "")
+        width_class = "flex-1 min-w-[200px]" if field_cfg.half_width else "w-full"
+
+        _open_row_if_needed(field_cfg)
 
         if field_cfg.type == "textarea":
             fields[field_cfg.name] = ui.textarea(
                 label=label, value=value
-            ).props("outlined dense").classes("w-full")
+            ).props("outlined dense").classes(width_class)
         elif field_cfg.type == "date":
-            with ui.input(label=label, value=value).props("outlined dense") as inp:
+            with ui.input(label=label, value=value).props("outlined dense").classes(width_class) as inp:
                 with ui.menu().props("no-parent-event") as menu:
                     with ui.date(on_change=lambda e, i=inp, m=menu: _set_date(i, m, e)):
                         pass
@@ -71,11 +91,11 @@ async def render_step_form(
             options = await _resolve_options(field_cfg.options_key)
             fields[field_cfg.name] = ui.select(
                 label=label, options=options, value=value if value in options else None
-            ).props("outlined dense stack-label").classes("w-full")
+            ).props("outlined dense stack-label").classes(width_class)
         elif field_cfg.type == "file":
             uploaded = (files or {}).get(field_cfg.name)
             if uploaded:
-                with ui.row().classes("w-full items-center gap-2"):
+                with ui.row().classes(f"{width_class} items-center gap-2"):
                     ui.icon("check_circle", color="positive", size="sm")
                     ui.label(f"{label}: {uploaded}").classes("text-positive text-sm")
             elif on_file_upload:
@@ -85,20 +105,21 @@ async def render_step_form(
                     auto_upload=True,
                     max_file_size=max_upload_size_mb * 1024 * 1024,
                     on_upload=lambda e, name=field_cfg.name: on_file_upload(name, e),
-                ).props("outlined flat accept='.pdf,.jpg,.jpeg,.png,.doc,.docx'").classes("w-full")
+                ).props("outlined flat accept='.pdf,.jpg,.jpeg,.png,.doc,.docx'").classes(width_class)
             else:
                 ui.label(f"{label}: no upload available").classes("text-grey text-sm")
             fields[field_cfg.name] = None
         elif field_cfg.type == "location":
             nominatim_results: list[dict] = []
-            loc_select = ui.select(
-                label=label,
-                options={value: value} if value else {},
-                value=value or None,
-                with_input=True,
-            ).props("outlined dense stack-label use-input hide-selected fill-input input-debounce=500").classes("w-full")
-
-            loc_map = ui.leaflet(center=(48.71, 2.21), zoom=4).classes("w-full rounded").style("height: 250px")
+            with ui.row().classes("w-full gap-4 items-start"):
+                with ui.column().classes("flex-1"):
+                    loc_select = ui.select(
+                        label=label,
+                        options={value: value} if value else {},
+                        value=value or None,
+                        with_input=True,
+                    ).props("outlined dense stack-label use-input hide-selected fill-input input-debounce=500").classes("w-full")
+                loc_map = ui.leaflet(center=(48.71, 2.21), zoom=4).classes("rounded").style("height: 180px; width: 300px; min-width: 200px")
             loc_marker = None
 
             async def _on_input_value(e, sel=loc_select):
@@ -130,11 +151,13 @@ async def render_step_form(
         elif field_cfg.type == "email":
             fields[field_cfg.name] = ui.input(
                 label=label, value=value, validation={t("invalid_email"): lambda v: "@" in v if v else True}
-            ).props("outlined dense type=email").classes("w-full")
+            ).props("outlined dense type=email").classes(width_class)
         else:
             fields[field_cfg.name] = ui.input(
                 label=label, value=value
-            ).props("outlined dense").classes("w-full")
+            ).props("outlined dense").classes(width_class)
+
+    _close_row()
 
     # Date-pair: show duration when both departure_date and return_date are set
     if "departure_date" in fields and "return_date" in fields:

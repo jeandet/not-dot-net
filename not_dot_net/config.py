@@ -12,6 +12,7 @@ class FieldConfig(BaseModel):
     label: str = ""
     options_key: str | None = None  # for select: key in Settings (e.g. "teams")
     encrypted: bool = False
+    half_width: bool = False
 
 
 class NotificationRuleConfig(BaseModel):
