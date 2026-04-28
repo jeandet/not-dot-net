@@ -344,20 +344,22 @@ async def _render_edit_form(container, person: User, current_user: User, state: 
         ui.separator()
 
         fields = {}
+        readonly_fields: set[str] = set()
 
         def _add_field(name, label, value, *, readonly=False):
             widget = ui.input(label, value=value).props("outlined dense")
             if readonly or not _is_ad_writable(name, ad_writable):
                 widget.props("readonly")
                 widget.classes("opacity-60")
+                readonly_fields.add(name)
             fields[name] = widget
 
         if is_admin:
             _add_field("full_name", t("full_name"), person.full_name or "")
             _add_field("email", t("email"), person.email)
             _add_field("team", t("team"), person.team or "")
-            _add_field("employment_status", t("status"), person.employment_status or "")
             _add_field("title", t("title"), person.title or "")
+            _add_field("employment_status", t("status"), person.employment_status or "")
             _add_field("start_date", t("start_date"),
                        str(person.start_date) if person.start_date else "")
             _add_field("end_date", t("end_date"),
@@ -367,9 +369,12 @@ async def _render_edit_form(container, person: User, current_user: User, state: 
             from not_dot_net.backend.roles import roles_config
             roles_cfg = await roles_config.get()
             role_options = sorted(roles_cfg.roles.keys())
+            current_role = person.role or ""
+            if current_role and current_role not in role_options:
+                role_options = sorted(role_options + [current_role])
             role_select = ui.select(
-                role_options, value=person.role or "", label=t("role"),
-            ).props("outlined dense stack-label").classes("w-full")
+                role_options, value=current_role or None, label=t("role"),
+            ).props("outlined dense stack-label clearable").classes("w-full")
             fields["role"] = role_select
 
         _add_field("phone", t("phone"), person.phone or "")
@@ -381,7 +386,7 @@ async def _render_edit_form(container, person: User, current_user: User, state: 
         async def _do_save(ad_conn=None):
             submitted = {}
             for k, v in fields.items():
-                if not _is_ad_writable(k, ad_writable):
+                if k in readonly_fields:
                     continue
                 val = v.value or None
                 if k in ("start_date", "end_date") and val:
