@@ -327,6 +327,7 @@ async def _render_edit_form(container, person: User, current_user: User, state: 
                             *, ad_writable: set[str] | None, stored_conn=None):
     container.clear()
     is_admin = await has_permissions(current_user, "manage_users")
+    is_own = person.id == current_user.id
 
     with container:
         ui.separator()
@@ -351,6 +352,7 @@ async def _render_edit_form(container, person: User, current_user: User, state: 
             _add_field("end_date", t("end_date"),
                        str(person.end_date) if person.end_date else "")
 
+        if is_admin and not is_own:
             from not_dot_net.backend.roles import roles_config
             roles_cfg = await roles_config.get()
             role_options = sorted(roles_cfg.roles.keys())
