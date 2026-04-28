@@ -80,11 +80,11 @@ async def render(user: User):
                             prefill.update(await _render_returning_search(fc))
                         await render_step_form(step, prefill, on_submit=submit_fn)
 
-                async def toggle_form(fc=form_container, step=first_step, key=wf_key):
+                async def toggle_form(fc=form_container, step=first_step, key=wf_key, open_fn=_open_form):
                     if fc.visible:
                         fc.set_visibility(False)
                     else:
-                        await _open_form(fc, step, key)
+                        await open_fn(fc, step, key)
 
                 card.on("click", toggle_form)
 
