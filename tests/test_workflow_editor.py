@@ -763,6 +763,83 @@ async def test_reset_refreshes_ui_and_logs_audit(user: User, admin_user):
                for e in events)
 
 
+async def test_assignee_picker_writes_role_correctly(user: User, admin_user):
+    from not_dot_net.frontend.workflow_editor import WorkflowEditorDialog
+    await workflows_config.set(WorkflowsConfig(workflows={
+        "a": WorkflowConfig(label="A", steps=[WorkflowStepConfig(key="s", type="form")]),
+    }))
+    captured = {}
+
+    @ui.page("/_assignee_role")
+    async def _page():
+        captured["dlg"] = await WorkflowEditorDialog.create(admin_user)
+
+    await user.open("/_assignee_role")
+    dlg = captured["dlg"]
+    dlg.set_step_assignee_from_picker("a", "s", "role:admin")
+    step = dlg.working_copy.workflows["a"].steps[0]
+    assert step.assignee_role == "admin"
+    assert step.assignee_permission is None
+    assert step.assignee is None
+
+
+async def test_assignee_picker_writes_contextual_target_person(user: User, admin_user):
+    from not_dot_net.frontend.workflow_editor import WorkflowEditorDialog
+    await workflows_config.set(WorkflowsConfig(workflows={
+        "a": WorkflowConfig(label="A", steps=[WorkflowStepConfig(key="s", type="form")]),
+    }))
+    captured = {}
+
+    @ui.page("/_assignee_target")
+    async def _page():
+        captured["dlg"] = await WorkflowEditorDialog.create(admin_user)
+
+    await user.open("/_assignee_target")
+    dlg = captured["dlg"]
+    dlg.set_step_assignee_from_picker("a", "s", "contextual:target_person")
+    step = dlg.working_copy.workflows["a"].steps[0]
+    assert step.assignee == "target_person"
+    assert step.assignee_role is None
+    assert step.assignee_permission is None
+
+
+async def test_assignee_picker_writes_permission(user: User, admin_user):
+    from not_dot_net.frontend.workflow_editor import WorkflowEditorDialog
+    await workflows_config.set(WorkflowsConfig(workflows={
+        "a": WorkflowConfig(label="A", steps=[WorkflowStepConfig(key="s", type="form")]),
+    }))
+    captured = {}
+
+    @ui.page("/_assignee_perm")
+    async def _page():
+        captured["dlg"] = await WorkflowEditorDialog.create(admin_user)
+
+    await user.open("/_assignee_perm")
+    dlg = captured["dlg"]
+    dlg.set_step_assignee_from_picker("a", "s", "permission:approve_workflows")
+    step = dlg.working_copy.workflows["a"].steps[0]
+    assert step.assignee_permission == "approve_workflows"
+    assert step.assignee_role is None
+    assert step.assignee is None
+
+
+async def test_current_assignee_value_for_picker_role():
+    from not_dot_net.frontend.workflow_editor import _current_assignee_value
+    from not_dot_net.config import WorkflowStepConfig
+
+    s = WorkflowStepConfig(key="x", type="form", assignee_role="admin")
+    assert _current_assignee_value(s) == "role:admin"
+
+    s2 = WorkflowStepConfig(key="x", type="form", assignee_permission="approve_workflows")
+    assert _current_assignee_value(s2) == "permission:approve_workflows"
+
+    s3 = WorkflowStepConfig(key="x", type="form", assignee="target_person")
+    assert _current_assignee_value(s3) == "contextual:target_person"
+
+    s4 = WorkflowStepConfig(key="x", type="form")
+    assert _current_assignee_value(s4) is None
+
+
 async def test_doc_instructions_survive_navigation(user: User, admin_user):
     """Editing document_instructions then switching workflows must not lose the edits."""
     from not_dot_net.frontend.workflow_editor import WorkflowEditorDialog

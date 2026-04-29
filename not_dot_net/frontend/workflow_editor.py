@@ -10,9 +10,17 @@ from pydantic import ValidationError
 from yaml import safe_dump, safe_load
 
 from not_dot_net.backend.audit import log_audit
+from not_dot_net.backend.permissions import get_permissions
+from not_dot_net.backend.roles import roles_config
 from not_dot_net.backend.workflow_service import workflows_config, WorkflowsConfig
 from not_dot_net.config import FieldConfig, NotificationRuleConfig, OrgConfig, WorkflowConfig, WorkflowStepConfig
 from not_dot_net.frontend.i18n import t
+from not_dot_net.frontend.workflow_editor_options import (
+    assignee_options,
+    event_options,
+    recipient_options,
+    _slugify,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +41,17 @@ def _validate_slug(key: str) -> None:
         )
 
 
+def _current_assignee_value(step) -> str | None:
+    """Map a WorkflowStepConfig's assignee fields back to a picker value."""
+    if step.assignee_role:
+        return f"role:{step.assignee_role}"
+    if step.assignee_permission:
+        return f"permission:{step.assignee_permission}"
+    if step.assignee:
+        return f"contextual:{step.assignee}"
+    return None
+
+
 class WorkflowEditorDialog:
     """Dialog state holder. Construct with `await WorkflowEditorDialog.create(user)`."""
 
@@ -50,11 +69,16 @@ class WorkflowEditorDialog:
         self._active_tab = "Form"
         self._warnings_label = None
         self._current_warnings: list[str] = []
+        self._roles: dict = {}
+        self._permissions: dict = {}
 
     @classmethod
     async def create(cls, user) -> "WorkflowEditorDialog":
         original = await workflows_config.get()
         instance = cls(user, original)
+        roles_cfg = await roles_config.get()
+        instance._roles = dict(roles_cfg.roles)
+        instance._permissions = dict(get_permissions())
         instance._build()
         return instance
 
@@ -200,6 +224,24 @@ class WorkflowEditorDialog:
             step.assignee = value
         else:
             raise ValueError(f"Unknown assignee mode: {mode}")
+
+    def set_step_assignee_from_picker(self, wf_key: str, step_key: str, value: str | None) -> None:
+        """Apply an assignee picker value (e.g. 'role:admin') to the step."""
+        step = self._find_step(wf_key, step_key)
+        step.assignee_role = None
+        step.assignee_permission = None
+        step.assignee = None
+        if value is None:
+            return
+        kind, _, raw = value.partition(":")
+        if kind == "role":
+            step.assignee_role = raw
+        elif kind == "permission":
+            step.assignee_permission = raw
+        elif kind == "contextual":
+            step.assignee = raw
+        else:
+            raise ValueError(f"Unknown assignee picker value: {value}")
 
     # --- field-level mutations ---
 
@@ -350,22 +392,61 @@ class WorkflowEditorDialog:
                   on_change=lambda e, w=wf_key, k=step.key: self.set_step_field(w, k, "type", e.value)
                   ).classes("w-full").props("dense outlined stack-label")
 
-        # Assignee — radio group
-        current_mode = ("role" if step.assignee_role else
-                        "permission" if step.assignee_permission else
-                        "contextual" if step.assignee else "role")
-        current_value = step.assignee_role or step.assignee_permission or step.assignee or ""
+        ui.label(t("step_assignee")).classes("text-subtitle2 q-mt-sm")
+        opts = assignee_options(self._roles, self._permissions)
+        kinds = [
+            ("role", t("assignee_kind_role"), [o for o in opts if o["kind"] == "role"]),
+            ("permission", t("assignee_kind_permission"), [o for o in opts if o["kind"] == "permission"]),
+            ("contextual_requester", t("assignee_kind_requester"), [o for o in opts if o["kind"] == "contextual_requester"]),
+            ("contextual_target_person", t("assignee_kind_target"), [o for o in opts if o["kind"] == "contextual_target_person"]),
+        ]
+        kind_choices = {k: label for k, label, _ in kinds}
 
-        ui.label("Assigned to").classes("text-subtitle2 q-mt-sm")
-        mode_toggle = ui.toggle({"role": "Role", "permission": "Permission", "contextual": "Contextual"},
-                                value=current_mode).props("dense")
-        value_input = ui.input("assignee value", value=current_value).classes("w-full").props("dense outlined stack-label")
+        current_val = _current_assignee_value(step)
+        if current_val is None:
+            current_kind = "role"
+        else:
+            for k, _, sub in kinds:
+                if any(o["value"] == current_val for o in sub):
+                    current_kind = k
+                    break
+            else:
+                current_kind = "role"
 
-        def _commit_assignee(w=wf_key, k=step.key):
-            self.set_step_assignee(w, k, mode=mode_toggle.value, value=value_input.value or None)
+        kind_select = ui.select(kind_choices, value=current_kind, label=t("step_assignee")
+                                ).classes("w-full").props("dense outlined stack-label")
 
-        mode_toggle.on_value_change(lambda e: _commit_assignee())
-        value_input.on_value_change(lambda e: _commit_assignee())
+        sub_opts_by_kind = {k: [{"value": o["value"], "label": o["label"]} for o in sub]
+                            for k, _, sub in kinds}
+        sub_select_container = ui.row().classes("w-full")
+        sub_select_holder: dict = {"select": None}
+
+        def _render_sub_select(kind_value: str) -> None:
+            sub_select_container.clear()
+            sub_list = sub_opts_by_kind.get(kind_value, [])
+            if not sub_list:
+                contextual_value = "contextual:requester" if kind_value == "contextual_requester" else "contextual:target_person"
+                self.set_step_assignee_from_picker(wf_key, step.key, contextual_value)
+                sub_select_holder["select"] = None
+                return
+            if len(sub_list) == 1:
+                only = sub_list[0]["value"]
+                with sub_select_container:
+                    ui.label(sub_list[0]["label"]).classes("text-grey")
+                self.set_step_assignee_from_picker(wf_key, step.key, only)
+                sub_select_holder["select"] = None
+                return
+            options_dict = {o["value"]: o["label"] for o in sub_list}
+            initial = current_val if (current_val and any(o["value"] == current_val for o in sub_list)) else sub_list[0]["value"]
+            with sub_select_container:
+                sub = ui.select(options_dict, value=initial, label=t("step_assignee")
+                                ).classes("w-full").props("dense outlined stack-label")
+                sub.on_value_change(lambda e, w=wf_key, k=step.key: self.set_step_assignee_from_picker(w, k, e.value))
+            sub_select_holder["select"] = sub
+            self.set_step_assignee_from_picker(wf_key, step.key, initial)
+
+        _render_sub_select(current_kind)
+        kind_select.on_value_change(lambda e, _r=_render_sub_select: _r(e.value))
 
         # actions
         actions_widget = chip_list_editor(step.actions,
