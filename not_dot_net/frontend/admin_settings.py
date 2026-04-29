@@ -13,6 +13,7 @@ from not_dot_net.backend.audit import log_audit
 from not_dot_net.backend.data_io import export_all, import_all
 from not_dot_net.frontend.admin_roles import render as render_roles
 from not_dot_net.frontend.i18n import t
+from not_dot_net.frontend.widgets import chip_list_editor, keyed_chip_editor
 
 logger = logging.getLogger(__name__)
 
@@ -22,13 +23,18 @@ def _is_enum(annotation) -> bool:
 
 
 def _is_complex(schema: type[BaseModel]) -> bool:
-    """Check if a schema has nested models or dicts — use YAML editor."""
+    """A schema is complex (needs YAML editor) only if it contains a nested
+    BaseModel — directly, in a list, or as a dict value. Plain `dict[str, list[str]]`
+    is editable via `keyed_chip_editor` and is NOT complex.
+    """
     for field_info in schema.model_fields.values():
         annotation = field_info.annotation
-        if annotation is dict or (hasattr(annotation, "__origin__") and annotation.__origin__ is dict):
-            return True
         if isinstance(annotation, type) and issubclass(annotation, BaseModel):
             return True
+        args = getattr(annotation, "__args__", ())
+        for arg in args:
+            if isinstance(arg, type) and issubclass(arg, BaseModel):
+                return True
     return False
 
 
@@ -75,19 +81,15 @@ async def _render_form(prefix, cfg_section, current, user):
             widget = ui.switch(field_name, value=value)
         elif _is_enum(annotation):
             options = {m.value: m.value for m in annotation}
-            widget = ui.select(
-                options, label=field_name, value=value,
-            ).classes("w-full")
+            widget = ui.select(options, label=field_name, value=value).classes("w-full")
         elif annotation is int:
             widget = ui.number(field_name, value=value)
         elif annotation is str:
             widget = ui.input(field_name, value=value).classes("w-full")
         elif annotation == list[str]:
-            widget = ui.input(
-                field_name,
-                value=", ".join(value) if isinstance(value, list) else str(value),
-            ).classes("w-full")
-            hint = hint or "Comma-separated values"
+            widget = chip_list_editor(value if isinstance(value, list) else [], label=field_name)
+        elif annotation == dict[str, list[str]]:
+            widget = keyed_chip_editor(value if isinstance(value, dict) else {})
         else:
             widget = ui.input(field_name, value=str(value)).classes("w-full")
 
@@ -105,7 +107,9 @@ async def _render_form(prefix, cfg_section, current, user):
             elif annotation is int:
                 update[field_name] = int(widget.value)
             elif annotation == list[str]:
-                update[field_name] = [s.strip() for s in widget.value.split(",") if s.strip()]
+                update[field_name] = list(widget.value)
+            elif annotation == dict[str, list[str]]:
+                update[field_name] = widget.value
             else:
                 update[field_name] = widget.value
         try:

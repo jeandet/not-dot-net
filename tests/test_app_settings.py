@@ -40,13 +40,26 @@ def test_admin_settings_detects_enum_fields():
     assert _is_enum(list[str]) is False
 
 
-def test_admin_settings_detects_complex_schema_for_dict_fields():
+def test_admin_settings_dict_str_list_str_is_not_complex():
+    """dict[str, list[str]] is now editable via keyed_chip_editor — not complex."""
     from not_dot_net.frontend.admin_settings import _is_complex
 
     class DictSettings(BaseModel):
-        values: dict[str, list[str]]
+        values: dict[str, list[str]] = {}
 
-    assert _is_complex(DictSettings) is True
+    assert _is_complex(DictSettings) is False
+
+
+def test_admin_settings_nested_basemodel_still_complex():
+    from not_dot_net.frontend.admin_settings import _is_complex
+
+    class Inner(BaseModel):
+        x: int = 0
+
+    class Outer(BaseModel):
+        nested: dict[str, Inner] = {}
+
+    assert _is_complex(Outer) is True
 
 
 def test_admin_settings_detects_complex_schema_for_nested_models():
