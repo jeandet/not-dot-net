@@ -187,6 +187,15 @@ class WorkflowEditorDialog:
         del self.working_copy.workflows[wf_key].notifications[index]
         self._refresh_detail()
 
+    def set_notification_event(self, wf_key: str, index: int, value: str) -> None:
+        self.working_copy.workflows[wf_key].notifications[index].event = value
+
+    def set_notification_step(self, wf_key: str, index: int, value: str | None) -> None:
+        self.working_copy.workflows[wf_key].notifications[index].step = value
+
+    def set_notification_recipients(self, wf_key: str, index: int, values: list[str]) -> None:
+        self.working_copy.workflows[wf_key].notifications[index].notify = list(values)
+
     # --- step-level field mutations ---
 
     def _find_step(self, wf_key: str, step_key: str):
@@ -341,35 +350,49 @@ class WorkflowEditorDialog:
         self._render_notification_table(wf_key, wf)
 
     def _render_notification_table(self, wf_key: str, wf) -> None:
-        from not_dot_net.frontend.widgets import chip_list_editor
-
         step_keys = [s.key for s in wf.steps]
-        action_suggestions = sorted(
-            {a for s in wf.steps for a in s.actions} | {"submit", "approve", "reject", "request_corrections"}
-        )
-        notify_suggestions = ["requester", "target_person"]
+        event_opts = {o["value"]: o["label"] for o in event_options()}
+
+        # Recipient options for this snapshot.
+        recip_opts = recipient_options(self._roles, self._permissions)
+        recip_value_to_label = {o["value"]: o["label"] for o in recip_opts}
+
+        if not wf.notifications:
+            ui.label(t("empty_notifications")).classes("text-grey text-sm")
 
         for idx, rule in enumerate(wf.notifications):
             with ui.row().classes("w-full items-center gap-2 no-wrap"):
                 ui.select(
-                    options=action_suggestions, value=rule.event or None,
-                    new_value_mode="add-unique", with_input=True,
-                    on_change=lambda e, i=idx, k=wf_key: setattr(
-                        self.working_copy.workflows[k].notifications[i], "event", e.value or ""
-                    ),
-                ).props("dense outlined stack-label").classes("w-40")
-                ui.select(
-                    options=[None, *step_keys], value=rule.step,
-                    label="step",
-                    on_change=lambda e, i=idx, k=wf_key: setattr(
-                        self.working_copy.workflows[k].notifications[i], "step", e.value
-                    ),
-                ).props("dense outlined stack-label").classes("w-40")
-                notify_widget = chip_list_editor(rule.notify, suggestions=notify_suggestions)
+                    options=event_opts,
+                    value=rule.event or None,
+                    label="event",
+                    on_change=lambda e, i=idx, k=wf_key: self.set_notification_event(k, i, e.value or ""),
+                ).props("dense outlined stack-label").classes("w-44")
 
-                def _bind_notify(w=notify_widget, i=idx, k=wf_key):
-                    self.working_copy.workflows[k].notifications[i].notify = list(w.value)
-                notify_widget.on_value_change(lambda e, _b=_bind_notify: _b())
+                step_choices = {None: t("any_step"), **{sk: sk for sk in step_keys}}
+                ui.select(
+                    options=step_choices,
+                    value=rule.step,
+                    label="step",
+                    on_change=lambda e, i=idx, k=wf_key: self.set_notification_step(k, i, e.value),
+                ).props("dense outlined stack-label").classes("w-40")
+
+                # Show "Unknown: <raw>" for any persisted value not in current options.
+                missing = [v for v in (rule.notify or []) if v not in recip_value_to_label]
+                effective_options = {o["value"]: o["label"] for o in recip_opts}
+                for v in missing:
+                    effective_options[v] = f"Unknown: {v}"
+
+                recip_select = ui.select(
+                    options=effective_options,
+                    value=list(rule.notify or []),
+                    multiple=True,
+                    label="recipients",
+                ).props("dense outlined stack-label use-chips").classes("grow")
+
+                def _bind_recip(w=recip_select, i=idx, k=wf_key):
+                    self.set_notification_recipients(k, i, list(w.value or []))
+                recip_select.on_value_change(lambda e, _b=_bind_recip: _b())
 
                 ui.button(icon="delete",
                           on_click=lambda i=idx, k=wf_key: self.delete_notification_rule(k, i)

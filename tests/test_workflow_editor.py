@@ -865,3 +865,67 @@ async def test_doc_instructions_survive_navigation(user: User, admin_user):
     # Navigate back
     dlg.select("a")
     assert dlg.working_copy.workflows["a"].document_instructions.get("intern") == ["passport", "id"]
+
+
+async def test_recipient_picker_serializes_permissions(user: User, admin_user):
+    from not_dot_net.frontend.workflow_editor import WorkflowEditorDialog
+    from not_dot_net.config import NotificationRuleConfig
+    await workflows_config.set(WorkflowsConfig(workflows={
+        "a": WorkflowConfig(label="A", steps=[], notifications=[
+            NotificationRuleConfig(event="submit", notify=[]),
+        ]),
+    }))
+    captured = {}
+
+    @ui.page("/_recipient1")
+    async def _page():
+        captured["dlg"] = await WorkflowEditorDialog.create(admin_user)
+
+    await user.open("/_recipient1")
+    dlg = captured["dlg"]
+    dlg.set_notification_recipients("a", 0, ["permission:approve_workflows", "requester"])
+    rule = dlg.working_copy.workflows["a"].notifications[0]
+    assert rule.notify == ["permission:approve_workflows", "requester"]
+
+
+async def test_event_picker_known_values_only(user: User, admin_user):
+    from not_dot_net.frontend.workflow_editor import WorkflowEditorDialog
+    from not_dot_net.config import NotificationRuleConfig
+    await workflows_config.set(WorkflowsConfig(workflows={
+        "a": WorkflowConfig(label="A", steps=[], notifications=[
+            NotificationRuleConfig(event="", notify=[]),
+        ]),
+    }))
+    captured = {}
+
+    @ui.page("/_event1")
+    async def _page():
+        captured["dlg"] = await WorkflowEditorDialog.create(admin_user)
+
+    await user.open("/_event1")
+    dlg = captured["dlg"]
+    dlg.set_notification_event("a", 0, "approve")
+    assert dlg.working_copy.workflows["a"].notifications[0].event == "approve"
+
+
+async def test_existing_yaml_compat_with_recipient_picker(user: User, admin_user):
+    from not_dot_net.frontend.workflow_editor import WorkflowEditorDialog
+    from not_dot_net.config import NotificationRuleConfig
+    await workflows_config.set(WorkflowsConfig(workflows={
+        "a": WorkflowConfig(label="A", steps=[], notifications=[
+            NotificationRuleConfig(event="submit", notify=["permission:approve_workflows", "requester"]),
+        ]),
+    }))
+    captured = {}
+
+    @ui.page("/_recipient_compat")
+    async def _page():
+        captured["dlg"] = await WorkflowEditorDialog.create(admin_user)
+
+    await user.open("/_recipient_compat")
+    dlg = captured["dlg"]
+    rule = dlg.working_copy.workflows["a"].notifications[0]
+    assert rule.notify == ["permission:approve_workflows", "requester"]
+    await dlg.save()
+    persisted = await workflows_config.get()
+    assert persisted.workflows["a"].notifications[0].notify == ["permission:approve_workflows", "requester"]
