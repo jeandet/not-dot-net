@@ -219,3 +219,84 @@ async def test_delete_step(user: User, admin_user):
     dlg.delete_step("a", "x")
     keys = [s.key for s in dlg.working_copy.workflows["a"].steps]
     assert keys == ["y"]
+
+
+async def test_workflow_label_edit_propagates(user: User, admin_user):
+    from not_dot_net.frontend.workflow_editor import WorkflowEditorDialog
+    await workflows_config.set(WorkflowsConfig(workflows={
+        "a": WorkflowConfig(label="Original", steps=[]),
+    }))
+
+    captured = {}
+
+    @ui.page("/_wf_edit1")
+    async def _page():
+        captured["dlg"] = await WorkflowEditorDialog.create(admin_user)
+
+    await user.open("/_wf_edit1")
+    dlg = captured["dlg"]
+    dlg.set_workflow_label("a", "New Label")
+    assert dlg.working_copy.workflows["a"].label == "New Label"
+
+
+async def test_workflow_target_email_field_edit(user: User, admin_user):
+    from not_dot_net.frontend.workflow_editor import WorkflowEditorDialog
+    await workflows_config.set(WorkflowsConfig(workflows={
+        "a": WorkflowConfig(label="A", steps=[]),
+    }))
+
+    captured = {}
+
+    @ui.page("/_wf_edit2")
+    async def _page():
+        captured["dlg"] = await WorkflowEditorDialog.create(admin_user)
+
+    await user.open("/_wf_edit2")
+    dlg = captured["dlg"]
+    dlg.set_workflow_field("a", "target_email_field", "target_email")
+    assert dlg.working_copy.workflows["a"].target_email_field == "target_email"
+
+
+async def test_add_notification_rule(user: User, admin_user):
+    from not_dot_net.frontend.workflow_editor import WorkflowEditorDialog
+    from not_dot_net.config import NotificationRuleConfig
+    await workflows_config.set(WorkflowsConfig(workflows={
+        "a": WorkflowConfig(label="A", steps=[]),
+    }))
+
+    captured = {}
+
+    @ui.page("/_wf_edit3")
+    async def _page():
+        captured["dlg"] = await WorkflowEditorDialog.create(admin_user)
+
+    await user.open("/_wf_edit3")
+    dlg = captured["dlg"]
+    dlg.add_notification_rule("a")
+    assert len(dlg.working_copy.workflows["a"].notifications) == 1
+    rule = dlg.working_copy.workflows["a"].notifications[0]
+    assert rule.event == ""
+    assert rule.notify == []
+
+
+async def test_delete_notification_rule(user: User, admin_user):
+    from not_dot_net.frontend.workflow_editor import WorkflowEditorDialog
+    from not_dot_net.config import NotificationRuleConfig
+    await workflows_config.set(WorkflowsConfig(workflows={
+        "a": WorkflowConfig(label="A", steps=[], notifications=[
+            NotificationRuleConfig(event="submit", notify=["admin"]),
+            NotificationRuleConfig(event="reject", notify=["requester"]),
+        ]),
+    }))
+
+    captured = {}
+
+    @ui.page("/_wf_edit4")
+    async def _page():
+        captured["dlg"] = await WorkflowEditorDialog.create(admin_user)
+
+    await user.open("/_wf_edit4")
+    dlg = captured["dlg"]
+    dlg.delete_notification_rule("a", 0)
+    assert len(dlg.working_copy.workflows["a"].notifications) == 1
+    assert dlg.working_copy.workflows["a"].notifications[0].event == "reject"

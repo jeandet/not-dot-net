@@ -10,7 +10,7 @@ from pydantic import ValidationError
 
 from not_dot_net.backend.audit import log_audit
 from not_dot_net.backend.workflow_service import workflows_config, WorkflowsConfig
-from not_dot_net.config import WorkflowConfig, WorkflowStepConfig
+from not_dot_net.config import NotificationRuleConfig, WorkflowConfig, WorkflowStepConfig
 from not_dot_net.frontend.i18n import t
 
 logger = logging.getLogger(__name__)
@@ -37,6 +37,7 @@ class WorkflowEditorDialog:
         self.dialog: ui.dialog | None = None
         self._tree_container: ui.column | None = None
         self._detail_container: ui.column | None = None
+        self._workflow_doc_instructions_widget = None
 
     @classmethod
     async def create(cls, user) -> "WorkflowEditorDialog":
@@ -121,6 +122,24 @@ class WorkflowEditorDialog:
         self._refresh_tree()
         self._refresh_detail()
 
+    # --- workflow-level field mutations ---
+
+    def set_workflow_label(self, wf_key: str, value: str) -> None:
+        self.working_copy.workflows[wf_key].label = value
+
+    def set_workflow_field(self, wf_key: str, field: str, value) -> None:
+        setattr(self.working_copy.workflows[wf_key], field, value)
+
+    def add_notification_rule(self, wf_key: str) -> None:
+        self.working_copy.workflows[wf_key].notifications.append(
+            NotificationRuleConfig(event="", step=None, notify=[])
+        )
+        self._refresh_detail()
+
+    def delete_notification_rule(self, wf_key: str, index: int) -> None:
+        del self.working_copy.workflows[wf_key].notifications[index]
+        self._refresh_detail()
+
     # --- rendering ---
 
     def _refresh_tree(self) -> None:
@@ -150,14 +169,15 @@ class WorkflowEditorDialog:
     def _refresh_detail(self) -> None:
         if self._detail_container is None:
             return
+        self._workflow_doc_instructions_widget = None
         self._detail_container.clear()
         with self._detail_container:
             if self.selected_workflow is None:
                 ui.label("No workflow selected. Add one to begin.").classes("text-grey")
                 return
+            wf = self.working_copy.workflows[self.selected_workflow]
             if self.selected_step is None:
-                ui.label(f"Workflow: {self.selected_workflow}").classes("text-h6")
-                ui.label("(workflow-level editor will land in Task 6)").classes("text-grey")
+                self._render_workflow_editor(self.selected_workflow, wf)
             else:
                 ui.label(f"Step: {self.selected_step}").classes("text-h6")
                 ui.label("(step editor will land in Tasks 7-8)").classes("text-grey")
@@ -165,6 +185,78 @@ class WorkflowEditorDialog:
                 f"+ Add step to {self.selected_workflow}",
                 on_click=lambda k=self.selected_workflow: self._on_add_step_click(k),
             ).props("flat dense color=primary")
+
+    def _render_workflow_editor(self, wf_key: str, wf) -> None:
+        from not_dot_net.frontend.widgets import keyed_chip_editor
+
+        ui.label(f"Workflow: {wf_key}").classes("text-h6")
+
+        ui.input(t("label"), value=wf.label,
+                 on_change=lambda e, k=wf_key: self.set_workflow_label(k, e.value)
+                 ).classes("w-full").props("dense outlined stack-label")
+
+        ui.input("start_role", value=wf.start_role or "",
+                 on_change=lambda e, k=wf_key: self.set_workflow_field(k, "start_role", e.value)
+                 ).classes("w-full").props("dense outlined stack-label").tooltip(
+                     "Role key required to start this workflow")
+
+        ui.input("target_email_field", value=wf.target_email_field or "",
+                 on_change=lambda e, k=wf_key: self.set_workflow_field(k, "target_email_field", e.value or None)
+                 ).classes("w-full").props("dense outlined stack-label").tooltip(
+                     "Name of the field whose value is the target person's email")
+
+        ui.label("Document instructions").classes("text-subtitle2 q-mt-md")
+        di = keyed_chip_editor(wf.document_instructions or {}, key_label="status")
+        self._workflow_doc_instructions_widget = (wf_key, di)
+
+        ui.label("Notification rules").classes("text-subtitle2 q-mt-md")
+        self._render_notification_table(wf_key, wf)
+
+    def _render_notification_table(self, wf_key: str, wf) -> None:
+        from not_dot_net.frontend.widgets import chip_list_editor
+
+        step_keys = [s.key for s in wf.steps]
+        action_suggestions = sorted(
+            {a for s in wf.steps for a in s.actions} | {"submit", "approve", "reject", "request_corrections"}
+        )
+        notify_suggestions = ["requester", "target_person"]
+
+        for idx, rule in enumerate(wf.notifications):
+            with ui.row().classes("w-full items-center gap-2 no-wrap"):
+                ui.select(
+                    options=action_suggestions, value=rule.event or None,
+                    new_value_mode="add-unique", with_input=True,
+                    on_change=lambda e, i=idx, k=wf_key: setattr(
+                        self.working_copy.workflows[k].notifications[i], "event", e.value or ""
+                    ),
+                ).props("dense outlined stack-label").classes("w-40")
+                ui.select(
+                    options=[None, *step_keys], value=rule.step,
+                    label="step",
+                    on_change=lambda e, i=idx, k=wf_key: setattr(
+                        self.working_copy.workflows[k].notifications[i], "step", e.value
+                    ),
+                ).props("dense outlined stack-label").classes("w-40")
+                notify_widget = chip_list_editor(rule.notify, suggestions=notify_suggestions)
+
+                def _bind_notify(w=notify_widget, i=idx, k=wf_key):
+                    self.working_copy.workflows[k].notifications[i].notify = list(w.value)
+                notify_widget.on_value_change(lambda e, _b=_bind_notify: _b())
+
+                ui.button(icon="delete",
+                          on_click=lambda i=idx, k=wf_key: self.delete_notification_rule(k, i)
+                          ).props("flat dense round color=negative")
+
+        ui.button("+ Add notification rule",
+                  on_click=lambda k=wf_key: self.add_notification_rule(k)
+                  ).props("flat dense color=primary")
+
+    def _collect_widget_state(self) -> None:
+        wf_doc = self._workflow_doc_instructions_widget
+        if wf_doc:
+            wf_key, widget = wf_doc
+            if wf_key in self.working_copy.workflows:
+                self.working_copy.workflows[wf_key].document_instructions = widget.value
 
     def _on_add_workflow_click(self) -> None:
         self._prompt_for_key("New workflow key", lambda k: self.add_workflow(k))
@@ -205,6 +297,7 @@ class WorkflowEditorDialog:
             self.dialog.close()
 
     async def save(self) -> None:
+        self._collect_widget_state()
         try:
             validated = WorkflowsConfig.model_validate(self.working_copy.model_dump())
         except ValidationError as e:

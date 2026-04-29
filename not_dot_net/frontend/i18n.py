@@ -53,6 +53,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "session_expired": "Session expired — please log in again",
         # Common
         "name": "Name",
+        "label": "Label",
         "submit": "Submit",
         # Workflow field labels
         "contact_email": "Contact Email",
@@ -305,6 +306,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "session_expired": "Session expirée — veuillez vous reconnecter",
         # Common
         "name": "Nom",
+        "label": "Libellé",
         "submit": "Envoyer",
         # Workflow field labels
         "contact_email": "E-mail de contact",
