@@ -390,3 +390,85 @@ async def test_set_step_assignee_mode_contextual(user: User, admin_user):
     assert step.assignee == "target_person"
     assert step.assignee_role is None
     assert step.assignee_permission is None
+
+
+async def test_add_field_to_step(user: User, admin_user):
+    from not_dot_net.frontend.workflow_editor import WorkflowEditorDialog
+    await workflows_config.set(WorkflowsConfig(workflows={
+        "a": WorkflowConfig(label="A", steps=[WorkflowStepConfig(key="s", type="form")]),
+    }))
+
+    captured = {}
+
+    @ui.page("/_field1")
+    async def _page():
+        captured["dlg"] = await WorkflowEditorDialog.create(admin_user)
+
+    await user.open("/_field1")
+    dlg = captured["dlg"]
+    dlg.add_field("a", "s")
+    fields = dlg.working_copy.workflows["a"].steps[0].fields
+    assert len(fields) == 1
+    assert fields[0].name == ""
+    assert fields[0].type == "text"
+
+
+async def test_set_field_attr(user: User, admin_user):
+    from not_dot_net.frontend.workflow_editor import WorkflowEditorDialog
+    from not_dot_net.config import FieldConfig
+    await workflows_config.set(WorkflowsConfig(workflows={
+        "a": WorkflowConfig(label="A", steps=[
+            WorkflowStepConfig(key="s", type="form", fields=[
+                FieldConfig(name="email", type="email"),
+            ]),
+        ]),
+    }))
+
+    captured = {}
+
+    @ui.page("/_field2")
+    async def _page():
+        captured["dlg"] = await WorkflowEditorDialog.create(admin_user)
+
+    await user.open("/_field2")
+    dlg = captured["dlg"]
+    dlg.set_field_attr("a", "s", 0, "required", True)
+    dlg.set_field_attr("a", "s", 0, "label", "target_email")
+    field = dlg.working_copy.workflows["a"].steps[0].fields[0]
+    assert field.required is True
+    assert field.label == "target_email"
+
+
+async def test_delete_field(user: User, admin_user):
+    from not_dot_net.frontend.workflow_editor import WorkflowEditorDialog
+    from not_dot_net.config import FieldConfig
+    await workflows_config.set(WorkflowsConfig(workflows={
+        "a": WorkflowConfig(label="A", steps=[
+            WorkflowStepConfig(key="s", type="form", fields=[
+                FieldConfig(name="x", type="text"),
+                FieldConfig(name="y", type="text"),
+            ]),
+        ]),
+    }))
+
+    captured = {}
+
+    @ui.page("/_field3")
+    async def _page():
+        captured["dlg"] = await WorkflowEditorDialog.create(admin_user)
+
+    await user.open("/_field3")
+    dlg = captured["dlg"]
+    dlg.delete_field("a", "s", 0)
+    fields = dlg.working_copy.workflows["a"].steps[0].fields
+    assert [f.name for f in fields] == ["y"]
+
+
+async def test_org_list_keys_introspected():
+    """The options_key dropdown is populated from OrgConfig list[str] fields."""
+    from not_dot_net.frontend.workflow_editor import _org_list_field_names
+    keys = _org_list_field_names()
+    assert "teams" in keys
+    assert "sites" in keys
+    assert "employment_statuses" in keys
+    assert "app_name" not in keys  # not a list[str]

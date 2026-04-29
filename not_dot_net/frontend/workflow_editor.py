@@ -10,12 +10,19 @@ from pydantic import ValidationError
 
 from not_dot_net.backend.audit import log_audit
 from not_dot_net.backend.workflow_service import workflows_config, WorkflowsConfig
-from not_dot_net.config import NotificationRuleConfig, WorkflowConfig, WorkflowStepConfig
+from not_dot_net.config import FieldConfig, NotificationRuleConfig, OrgConfig, WorkflowConfig, WorkflowStepConfig
 from not_dot_net.frontend.i18n import t
 
 logger = logging.getLogger(__name__)
 
 _SLUG_RE = re.compile(r"^[a-z][a-z0-9_]*$")
+
+
+def _org_list_field_names() -> list[str]:
+    return [
+        name for name, info in OrgConfig.model_fields.items()
+        if info.annotation == list[str]
+    ]
 
 
 def _validate_slug(key: str) -> None:
@@ -177,6 +184,22 @@ class WorkflowEditorDialog:
         else:
             raise ValueError(f"Unknown assignee mode: {mode}")
 
+    # --- field-level mutations ---
+
+    def add_field(self, wf_key: str, step_key: str) -> None:
+        step = self._find_step(wf_key, step_key)
+        step.fields.append(FieldConfig(name="", type="text"))
+        self._refresh_detail()
+
+    def set_field_attr(self, wf_key: str, step_key: str, index: int, attr: str, value) -> None:
+        step = self._find_step(wf_key, step_key)
+        setattr(step.fields[index], attr, value)
+
+    def delete_field(self, wf_key: str, step_key: str, index: int) -> None:
+        step = self._find_step(wf_key, step_key)
+        del step.fields[index]
+        self._refresh_detail()
+
     # --- rendering ---
 
     def _refresh_tree(self) -> None:
@@ -336,6 +359,36 @@ class WorkflowEditorDialog:
             ui.select([None, *other_keys], value=step.corrections_target, label="corrections_target",
                       on_change=lambda e, w=wf_key, k=step.key: self.set_step_field(w, k, "corrections_target", e.value)
                       ).classes("w-full").props("dense outlined stack-label")
+
+        ui.label("Fields").classes("text-subtitle2 q-mt-md")
+        org_keys = [None, *_org_list_field_names()]
+        for idx, field in enumerate(step.fields):
+            with ui.row().classes("w-full items-center gap-2 no-wrap"):
+                ui.input("name", value=field.name,
+                         on_change=lambda e, i=idx, w=wf_key, sk=step.key: self.set_field_attr(w, sk, i, "name", e.value)
+                         ).props("dense outlined stack-label").classes("w-32")
+                ui.select(["text", "email", "textarea", "date", "select", "file"], value=field.type, label="type",
+                          on_change=lambda e, i=idx, w=wf_key, sk=step.key: self.set_field_attr(w, sk, i, "type", e.value)
+                          ).props("dense outlined stack-label").classes("w-32")
+                ui.switch("required", value=field.required,
+                          on_change=lambda e, i=idx, w=wf_key, sk=step.key: self.set_field_attr(w, sk, i, "required", e.value))
+                ui.input("label", value=field.label,
+                         on_change=lambda e, i=idx, w=wf_key, sk=step.key: self.set_field_attr(w, sk, i, "label", e.value)
+                         ).props("dense outlined stack-label").classes("w-40")
+                ui.select(org_keys, value=field.options_key, label="options_key",
+                          on_change=lambda e, i=idx, w=wf_key, sk=step.key: self.set_field_attr(w, sk, i, "options_key", e.value)
+                          ).props("dense outlined stack-label").classes("w-40")
+                ui.switch("encrypted", value=field.encrypted,
+                          on_change=lambda e, i=idx, w=wf_key, sk=step.key: self.set_field_attr(w, sk, i, "encrypted", e.value))
+                ui.switch("half_width", value=field.half_width,
+                          on_change=lambda e, i=idx, w=wf_key, sk=step.key: self.set_field_attr(w, sk, i, "half_width", e.value))
+                ui.button(icon="delete",
+                          on_click=lambda i=idx, w=wf_key, sk=step.key: self.delete_field(w, sk, i)
+                          ).props("flat dense round color=negative")
+
+        ui.button("+ Add field",
+                  on_click=lambda w=wf_key, sk=step.key: self.add_field(w, sk)
+                  ).props("flat dense color=primary")
 
     def _safe_set(self, wf_key: str, step_key: str, field: str, value) -> None:
         try:
