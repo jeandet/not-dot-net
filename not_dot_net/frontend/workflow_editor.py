@@ -47,6 +47,9 @@ class WorkflowEditorDialog:
         self._detail_container: ui.column | None = None
         self._workflow_doc_instructions_widget = None
         self._yaml_editor = None
+        self._active_tab = "Form"
+        self._warnings_label = None
+        self._current_warnings: list[str] = []
 
     @classmethod
     async def create(cls, user) -> "WorkflowEditorDialog":
@@ -71,10 +74,13 @@ class WorkflowEditorDialog:
                 with ui.tab_panel("YAML"):
                     self._yaml_editor = ui.codemirror(self.dump_yaml(), language="yaml").classes("w-full").style("min-height: 400px")
             tabs.on_value_change(self._on_tab_change)
-            with ui.row().classes("w-full justify-end"):
-                ui.button(t("cancel"), on_click=self.close).props("flat")
-                ui.button(t("reset_defaults"), on_click=self.reset).props("flat color=grey")
-                ui.button(t("save"), on_click=self.save).props("color=primary")
+            with ui.row().classes("w-full justify-between items-center"):
+                self._warnings_label = ui.label("").classes("text-warning text-sm")
+                self._warnings_label.on("click", lambda e: self._show_warnings(self._current_warnings))
+                with ui.row():
+                    ui.button(t("cancel"), on_click=self._on_cancel_click).props("flat")
+                    ui.button(t("reset_defaults"), on_click=self.reset).props("flat color=grey")
+                    ui.button(t("save"), on_click=self.save).props("color=primary")
         self._refresh_tree()
         self._refresh_detail()
 
@@ -255,6 +261,14 @@ class WorkflowEditorDialog:
                 f"+ Add step to {self.selected_workflow}",
                 on_click=lambda k=self.selected_workflow: self._on_add_step_click(k),
             ).props("flat dense color=primary")
+        if self._warnings_label is not None:
+            self._current_warnings = self.compute_warnings()
+            if self._current_warnings:
+                self._warnings_label.set_text(f"⚠ {len(self._current_warnings)} issue(s) — click to view")
+                self._warnings_label.classes(replace="text-warning text-sm cursor-pointer")
+            else:
+                self._warnings_label.set_text("")
+                self._warnings_label.classes(replace="text-warning text-sm")
 
     def _render_workflow_editor(self, wf_key: str, wf) -> None:
         from not_dot_net.frontend.widgets import keyed_chip_editor
@@ -432,8 +446,10 @@ class WorkflowEditorDialog:
             if self._yaml_editor is not None:
                 try:
                     self.apply_yaml(self._yaml_editor.value)
-                except ValueError as exc:
-                    ui.notify(f"Invalid YAML: {exc}", color="negative", multi_line=True)
+                except ValueError as err:
+                    ui.notify(f"Invalid YAML: {err}", color="negative", multi_line=True)
+                    return  # stay on YAML
+        self._active_tab = new_tab
 
     def _collect_widget_state(self) -> None:
         wf_doc = self._workflow_doc_instructions_widget
@@ -470,6 +486,65 @@ class WorkflowEditorDialog:
                 ui.button("Cancel", on_click=dlg.close).props("flat")
         dlg.open()
 
+    # --- validation & dirty tracking ---
+
+    def is_dirty(self) -> bool:
+        self._collect_widget_state()
+        return self.working_copy.model_dump() != self.original.model_dump()
+
+    def compute_warnings(self) -> list[str]:
+        warnings: list[str] = []
+        org_list_keys = set(_org_list_field_names())
+        for wf_key, wf in self.working_copy.workflows.items():
+            seen_step_keys: set[str] = set()
+            step_keys: list[str] = []
+            for step in wf.steps:
+                if step.key in seen_step_keys:
+                    warnings.append(f"[{wf_key}] duplicate step key '{step.key}'")
+                seen_step_keys.add(step.key)
+                step_keys.append(step.key)
+            field_names = {f.name for s in wf.steps for f in s.fields}
+            if wf.target_email_field and wf.target_email_field not in field_names:
+                warnings.append(
+                    f"[{wf_key}] target_email_field '{wf.target_email_field}' does not match any field name"
+                )
+            for step in wf.steps:
+                if "request_corrections" in (step.actions or []):
+                    if step.corrections_target and step.corrections_target not in step_keys:
+                        warnings.append(
+                            f"[{wf_key}/{step.key}] corrections_target '{step.corrections_target}' does not exist"
+                        )
+                for f in step.fields:
+                    if f.options_key and f.options_key not in org_list_keys:
+                        warnings.append(
+                            f"[{wf_key}/{step.key}/{f.name}] options_key '{f.options_key}' is not an OrgConfig list field"
+                        )
+            for nr in wf.notifications:
+                if nr.step and nr.step not in step_keys:
+                    warnings.append(f"[{wf_key}] notification rule references missing step '{nr.step}'")
+        return warnings
+
+    def _show_warnings(self, warnings: list[str]) -> None:
+        dlg = ui.dialog()
+        with dlg, ui.card():
+            ui.label("Configuration warnings").classes("text-h6")
+            for w in warnings:
+                ui.label(f"• {w}")
+            ui.button("Close", on_click=dlg.close).props("flat")
+        dlg.open()
+
+    def _on_cancel_click(self) -> None:
+        if not self.is_dirty():
+            self.close()
+            return
+        dlg = ui.dialog()
+        with dlg, ui.card():
+            ui.label("Discard unsaved changes?")
+            with ui.row():
+                ui.button("Discard", on_click=lambda: (dlg.close(), self.close())).props("color=negative")
+                ui.button("Keep editing", on_click=dlg.close).props("flat")
+        dlg.open()
+
     # --- lifecycle ---
 
     def open(self) -> None:
@@ -481,7 +556,14 @@ class WorkflowEditorDialog:
             self.dialog.close()
 
     async def save(self) -> None:
-        self._collect_widget_state()
+        if self._active_tab == "YAML" and self._yaml_editor is not None:
+            try:
+                self.apply_yaml(self._yaml_editor.value)
+            except ValueError as err:
+                ui.notify(f"Invalid YAML: {err}", color="negative", multi_line=True)
+                return
+        else:
+            self._collect_widget_state()
         try:
             validated = WorkflowsConfig.model_validate(self.working_copy.model_dump())
         except ValidationError as e:

@@ -5,7 +5,7 @@ from nicegui import ui
 from nicegui.testing import User
 
 from not_dot_net.backend.workflow_service import workflows_config, WorkflowsConfig
-from not_dot_net.config import WorkflowConfig, WorkflowStepConfig
+from not_dot_net.config import FieldConfig, NotificationRuleConfig, WorkflowConfig, WorkflowStepConfig
 
 
 @pytest.fixture
@@ -538,3 +538,158 @@ async def test_yaml_apply_invalid_raises(user: User, admin_user):
     dlg = captured["dlg"]
     with pytest.raises(ValueError):
         dlg.apply_yaml("not: [valid yaml structure for the schema")
+
+
+async def test_validation_warnings_step_key_collision(user: User, admin_user):
+    from not_dot_net.frontend.workflow_editor import WorkflowEditorDialog
+    await workflows_config.set(WorkflowsConfig(workflows={
+        "a": WorkflowConfig(label="A", steps=[
+            WorkflowStepConfig(key="x", type="form"),
+            WorkflowStepConfig(key="x", type="form"),
+        ]),
+    }))
+    captured = {}
+
+    @ui.page("/_warn1")
+    async def _page():
+        captured["dlg"] = await WorkflowEditorDialog.create(admin_user)
+
+    await user.open("/_warn1")
+    dlg = captured["dlg"]
+    warnings = dlg.compute_warnings()
+    assert any("duplicate step" in w.lower() for w in warnings)
+
+
+async def test_validation_warnings_dangling_corrections_target(user: User, admin_user):
+    from not_dot_net.frontend.workflow_editor import WorkflowEditorDialog
+    await workflows_config.set(WorkflowsConfig(workflows={
+        "a": WorkflowConfig(label="A", steps=[
+            WorkflowStepConfig(key="x", type="form",
+                               actions=["request_corrections"],
+                               corrections_target="nope"),
+        ]),
+    }))
+    captured = {}
+
+    @ui.page("/_warn2")
+    async def _page():
+        captured["dlg"] = await WorkflowEditorDialog.create(admin_user)
+
+    await user.open("/_warn2")
+    dlg = captured["dlg"]
+    warnings = dlg.compute_warnings()
+    assert any("corrections_target" in w for w in warnings)
+
+
+async def test_validation_warnings_target_email_field_missing(user: User, admin_user):
+    from not_dot_net.frontend.workflow_editor import WorkflowEditorDialog
+    await workflows_config.set(WorkflowsConfig(workflows={
+        "a": WorkflowConfig(label="A", target_email_field="missing", steps=[]),
+    }))
+    captured = {}
+
+    @ui.page("/_warn3")
+    async def _page():
+        captured["dlg"] = await WorkflowEditorDialog.create(admin_user)
+
+    await user.open("/_warn3")
+    dlg = captured["dlg"]
+    warnings = dlg.compute_warnings()
+    assert any("target_email_field" in w for w in warnings)
+
+
+async def test_dirty_flag_tracks_changes(user: User, admin_user):
+    from not_dot_net.frontend.workflow_editor import WorkflowEditorDialog
+    await workflows_config.set(WorkflowsConfig(workflows={
+        "a": WorkflowConfig(label="A", steps=[]),
+    }))
+    captured = {}
+
+    @ui.page("/_dirty1")
+    async def _page():
+        captured["dlg"] = await WorkflowEditorDialog.create(admin_user)
+
+    await user.open("/_dirty1")
+    dlg = captured["dlg"]
+    assert dlg.is_dirty() is False
+    dlg.set_workflow_label("a", "Mutated")
+    assert dlg.is_dirty() is True
+
+
+async def test_save_invalid_does_not_persist(user: User, admin_user):
+    """A working copy that fails Pydantic validation should not be saved."""
+    from not_dot_net.frontend.workflow_editor import WorkflowEditorDialog
+    await workflows_config.set(WorkflowsConfig(workflows={
+        "a": WorkflowConfig(label="A", steps=[]),
+    }))
+    captured = {}
+
+    @ui.page("/_save_invalid")
+    async def _page():
+        captured["dlg"] = await WorkflowEditorDialog.create(admin_user)
+
+    await user.open("/_save_invalid")
+    dlg = captured["dlg"]
+    # Force an invalid state by injecting a step with an invalid type via model_construct
+    dlg.working_copy.workflows["a"].steps.append(
+        WorkflowStepConfig.model_construct(key="bad", type=123)  # type must be str
+    )
+    await dlg.save()
+    persisted = await workflows_config.get()
+    assert persisted.workflows["a"].steps == []  # save was rejected, original preserved
+
+
+async def test_audit_log_emitted_on_save(user: User, admin_user):
+    from not_dot_net.frontend.workflow_editor import WorkflowEditorDialog
+    from not_dot_net.backend.audit import list_audit_events
+    await workflows_config.set(WorkflowsConfig(workflows={
+        "a": WorkflowConfig(label="A", steps=[]),
+    }))
+    captured = {}
+
+    @ui.page("/_audit1")
+    async def _page():
+        captured["dlg"] = await WorkflowEditorDialog.create(admin_user)
+
+    await user.open("/_audit1")
+    dlg = captured["dlg"]
+    dlg.set_workflow_label("a", "Edited")
+    await dlg.save()
+
+    events = await list_audit_events(limit=10)
+    assert any(e.category == "settings" and e.action == "update"
+               and (e.detail or "").startswith("section=workflows")
+               for e in events)
+
+
+async def test_save_applies_pending_yaml_when_yaml_tab_active(user: User, admin_user):
+    """If user edits YAML and clicks Save without switching to Form, the YAML edits should still take effect."""
+    from not_dot_net.frontend.workflow_editor import WorkflowEditorDialog
+    await workflows_config.set(WorkflowsConfig(workflows={
+        "a": WorkflowConfig(label="Original", steps=[]),
+    }))
+    captured = {}
+
+    @ui.page("/_yaml_save")
+    async def _page():
+        captured["dlg"] = await WorkflowEditorDialog.create(admin_user)
+
+    await user.open("/_yaml_save")
+    dlg = captured["dlg"]
+    # Simulate user being on the YAML tab with edits
+    dlg._active_tab = "YAML"
+    dlg._yaml_editor.value = """
+token_expiry_days: 30
+verification_code_expiry_minutes: 15
+max_upload_size_mb: 10
+workflows:
+  a:
+    label: From YAML Save
+    start_role: staff
+    steps: []
+    notifications: []
+    document_instructions: {}
+"""
+    await dlg.save()
+    persisted = await workflows_config.get()
+    assert persisted.workflows["a"].label == "From YAML Save"
