@@ -472,3 +472,69 @@ async def test_org_list_keys_introspected():
     assert "sites" in keys
     assert "employment_statuses" in keys
     assert "app_name" not in keys  # not a list[str]
+
+
+async def test_yaml_dump_reflects_working_copy(user: User, admin_user):
+    from not_dot_net.frontend.workflow_editor import WorkflowEditorDialog
+    await workflows_config.set(WorkflowsConfig(workflows={
+        "a": WorkflowConfig(label="Renamed", steps=[]),
+    }))
+
+    captured = {}
+
+    @ui.page("/_yaml1")
+    async def _page():
+        captured["dlg"] = await WorkflowEditorDialog.create(admin_user)
+
+    await user.open("/_yaml1")
+    dlg = captured["dlg"]
+    yaml_str = dlg.dump_yaml()
+    assert "Renamed" in yaml_str
+    assert "workflows:" in yaml_str
+
+
+async def test_yaml_apply_updates_working_copy(user: User, admin_user):
+    from not_dot_net.frontend.workflow_editor import WorkflowEditorDialog
+    await workflows_config.set(WorkflowsConfig(workflows={
+        "a": WorkflowConfig(label="A", steps=[]),
+    }))
+
+    captured = {}
+
+    @ui.page("/_yaml2")
+    async def _page():
+        captured["dlg"] = await WorkflowEditorDialog.create(admin_user)
+
+    await user.open("/_yaml2")
+    dlg = captured["dlg"]
+    new_yaml = """
+token_expiry_days: 60
+verification_code_expiry_minutes: 15
+max_upload_size_mb: 10
+workflows:
+  a:
+    label: From YAML
+    start_role: staff
+    steps: []
+    notifications: []
+    document_instructions: {}
+"""
+    dlg.apply_yaml(new_yaml)
+    assert dlg.working_copy.workflows["a"].label == "From YAML"
+    assert dlg.working_copy.token_expiry_days == 60
+
+
+async def test_yaml_apply_invalid_raises(user: User, admin_user):
+    from not_dot_net.frontend.workflow_editor import WorkflowEditorDialog
+    await workflows_config.set(WorkflowsConfig(workflows={}))
+
+    captured = {}
+
+    @ui.page("/_yaml3")
+    async def _page():
+        captured["dlg"] = await WorkflowEditorDialog.create(admin_user)
+
+    await user.open("/_yaml3")
+    dlg = captured["dlg"]
+    with pytest.raises(ValueError):
+        dlg.apply_yaml("not: [valid yaml structure for the schema")

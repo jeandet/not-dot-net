@@ -7,6 +7,7 @@ import re
 
 from nicegui import ui
 from pydantic import ValidationError
+from yaml import safe_dump, safe_load
 
 from not_dot_net.backend.audit import log_audit
 from not_dot_net.backend.workflow_service import workflows_config, WorkflowsConfig
@@ -45,6 +46,7 @@ class WorkflowEditorDialog:
         self._tree_container: ui.column | None = None
         self._detail_container: ui.column | None = None
         self._workflow_doc_instructions_widget = None
+        self._yaml_editor = None
 
     @classmethod
     async def create(cls, user) -> "WorkflowEditorDialog":
@@ -58,9 +60,17 @@ class WorkflowEditorDialog:
         with self.dialog, ui.card().classes("w-full h-full"):
             with ui.row().classes("w-full items-center justify-between"):
                 ui.label(t("workflows_editor")).classes("text-h6")
-            with ui.row().classes("w-full grow no-wrap"):
-                self._tree_container = ui.column().classes("w-72 q-pr-md").style("border-right: 1px solid #e0e0e0")
-                self._detail_container = ui.column().classes("grow")
+            with ui.tabs() as tabs:
+                ui.tab("Form")
+                ui.tab("YAML")
+            with ui.tab_panels(tabs, value="Form").classes("w-full grow"):
+                with ui.tab_panel("Form"):
+                    with ui.row().classes("w-full grow no-wrap"):
+                        self._tree_container = ui.column().classes("w-72 q-pr-md").style("border-right: 1px solid #e0e0e0")
+                        self._detail_container = ui.column().classes("grow")
+                with ui.tab_panel("YAML"):
+                    self._yaml_editor = ui.codemirror(self.dump_yaml(), language="yaml").classes("w-full").style("min-height: 400px")
+            tabs.on_value_change(self._on_tab_change)
             with ui.row().classes("w-full justify-end"):
                 ui.button(t("cancel"), on_click=self.close).props("flat")
                 ui.button(t("reset_defaults"), on_click=self.reset).props("flat color=grey")
@@ -395,6 +405,35 @@ class WorkflowEditorDialog:
             self.set_step_field(wf_key, step_key, field, value)
         except ValueError as e:
             ui.notify(str(e), color="negative")
+
+    def dump_yaml(self) -> str:
+        self._collect_widget_state()
+        return safe_dump(self.working_copy.model_dump(), default_flow_style=False, allow_unicode=True)
+
+    def apply_yaml(self, yaml_str: str) -> None:
+        try:
+            data = safe_load(yaml_str)
+            new_cfg = WorkflowsConfig.model_validate(data)
+        except Exception as e:
+            raise ValueError(str(e)) from e
+        self.working_copy = new_cfg
+        self.selected_workflow = next(iter(self.working_copy.workflows), None)
+        self.selected_step = None
+        self._refresh_tree()
+        self._refresh_detail()
+
+    def _on_tab_change(self, e) -> None:
+        new_tab = e.value
+        if new_tab == "YAML":
+            self._collect_widget_state()
+            if self._yaml_editor is not None:
+                self._yaml_editor.value = self.dump_yaml()
+        elif new_tab == "Form":
+            if self._yaml_editor is not None:
+                try:
+                    self.apply_yaml(self._yaml_editor.value)
+                except ValueError as exc:
+                    ui.notify(f"Invalid YAML: {exc}", color="negative", multi_line=True)
 
     def _collect_widget_state(self) -> None:
         wf_doc = self._workflow_doc_instructions_widget
