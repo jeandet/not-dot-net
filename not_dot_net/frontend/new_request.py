@@ -44,6 +44,8 @@ async def render(user: User):
         for wf_key, wf_config in cfg.workflows.items():
             if not await has_permissions(user, "create_workflows"):
                 continue
+            if not wf_config.steps:
+                continue
 
             with ui.card().classes("w-full cursor-pointer") as card:
                 ui.label(wf_config.label).classes("font-bold")

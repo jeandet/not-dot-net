@@ -500,6 +500,8 @@ class WorkflowEditorDialog:
         warnings: list[str] = []
         org_list_keys = set(_org_list_field_names())
         for wf_key, wf in self.working_copy.workflows.items():
+            if not wf.steps:
+                warnings.append(f"[{wf_key}] workflow has no steps — it will be hidden from the new-request page")
             seen_step_keys: set[str] = set()
             step_keys: list[str] = []
             for step in wf.steps:
