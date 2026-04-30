@@ -677,7 +677,7 @@ async def test_save_applies_pending_yaml_when_yaml_tab_active(user: User, admin_
     await user.open("/_yaml_save")
     dlg = captured["dlg"]
     # Simulate user being on the YAML tab with edits
-    dlg._active_tab = "YAML"
+    dlg._open_yaml_view()
     dlg._yaml_editor.value = """
 token_expiry_days: 30
 verification_code_expiry_minutes: 15
@@ -1035,3 +1035,25 @@ async def test_workflow_editor_renders_three_sections(user: User, admin_user):
     await user.should_see("Basics")
     await user.should_see("Notifications")
     await user.should_see("Document instructions")
+
+
+async def test_yaml_button_swaps_body(user: User, admin_user):
+    from not_dot_net.frontend.workflow_editor import WorkflowEditorDialog
+    await workflows_config.set(WorkflowsConfig(workflows={
+        "a": WorkflowConfig(label="A", steps=[]),
+    }))
+    captured = {}
+
+    @ui.page("/_yaml_swap")
+    async def _page():
+        captured["dlg"] = await WorkflowEditorDialog.create(admin_user)
+
+    await user.open("/_yaml_swap")
+    dlg = captured["dlg"]
+    assert dlg._active_tab == "Form"
+    dlg._open_yaml_view()
+    assert dlg._active_tab == "YAML"
+    assert dlg._yaml_editor is not None
+    assert "label: A" in dlg._yaml_editor.value
+    dlg._close_yaml_view()
+    assert dlg._active_tab == "Form"

@@ -67,6 +67,8 @@ class WorkflowEditorDialog:
         self._workflow_doc_instructions_widget = None
         self._yaml_editor = None
         self._active_tab = "Form"
+        self._body_container = None
+        self._save_button = None
         self._warnings_label = None
         self._current_warnings: list[str] = []
         self._roles: dict = {}
@@ -88,26 +90,49 @@ class WorkflowEditorDialog:
         with self.dialog, ui.card().classes("w-full h-full"):
             with ui.row().classes("w-full items-center justify-between"):
                 ui.label(t("workflows_editor")).classes("text-h6")
-            with ui.tabs() as tabs:
-                ui.tab("Form")
-                ui.tab("YAML")
-            with ui.tab_panels(tabs, value="Form").classes("w-full grow"):
-                with ui.tab_panel("Form"):
-                    with ui.row().classes("w-full grow no-wrap"):
-                        self._tree_container = ui.column().classes("w-72 q-pr-md").style("border-right: 1px solid #e0e0e0")
-                        self._detail_container = ui.column().classes("grow")
-                with ui.tab_panel("YAML"):
-                    self._yaml_editor = ui.codemirror(self.dump_yaml(), language="yaml").classes("w-full").style("min-height: 400px")
-            tabs.on_value_change(self._on_tab_change)
+                ui.button(icon="code", on_click=self._open_yaml_view
+                          ).props("flat dense").tooltip(t("yaml_advanced"))
+            self._body_container = ui.column().classes("w-full grow")
             with ui.row().classes("w-full justify-between items-center"):
                 self._warnings_label = ui.label("").classes("text-warning text-sm")
                 self._warnings_label.on("click", lambda e: self._show_warnings(self._current_warnings))
                 with ui.row():
                     ui.button(t("cancel"), on_click=self._on_cancel_click).props("flat")
                     ui.button(t("reset_defaults"), on_click=self.reset).props("flat color=grey")
-                    ui.button(t("save"), on_click=self.save).props("color=primary")
+                    self._save_button = ui.button(t("save"), on_click=self.save).props("color=primary")
+        self._render_form_body()
+
+    def _render_form_body(self) -> None:
+        self._active_tab = "Form"
+        self._body_container.clear()
+        with self._body_container:
+            with ui.row().classes("w-full grow no-wrap"):
+                self._tree_container = ui.column().classes("w-72 q-pr-md").style("border-right: 1px solid #e0e0e0")
+                self._detail_container = ui.column().classes("grow")
         self._refresh_tree()
         self._refresh_detail()
+
+    def _open_yaml_view(self) -> None:
+        # Capture form-side state into the model before rendering YAML.
+        self._collect_widget_state()
+        self._active_tab = "YAML"
+        self._body_container.clear()
+        with self._body_container:
+            with ui.row().classes("w-full justify-between items-center"):
+                ui.button(t("yaml_back_to_form"), icon="arrow_back",
+                          on_click=self._close_yaml_view).props("flat")
+            self._yaml_editor = ui.codemirror(self.dump_yaml(), language="yaml"
+                                              ).classes("w-full").style("min-height: 400px")
+
+    def _close_yaml_view(self) -> None:
+        if self._yaml_editor is not None:
+            try:
+                self.apply_yaml(self._yaml_editor.value)
+            except ValueError as err:
+                ui.notify(f"Invalid YAML: {err}", color="negative", multi_line=True)
+                return  # stay on YAML so user can fix
+        self._yaml_editor = None
+        self._render_form_body()
 
     # --- workflow mutations ---
 
@@ -635,21 +660,6 @@ class WorkflowEditorDialog:
         self.selected_step = None
         self._refresh_tree()
         self._refresh_detail()
-
-    def _on_tab_change(self, e) -> None:
-        new_tab = e.value
-        if new_tab == "YAML":
-            self._collect_widget_state()
-            if self._yaml_editor is not None:
-                self._yaml_editor.value = self.dump_yaml()
-        elif new_tab == "Form":
-            if self._yaml_editor is not None:
-                try:
-                    self.apply_yaml(self._yaml_editor.value)
-                except ValueError as err:
-                    ui.notify(f"Invalid YAML: {err}", color="negative", multi_line=True)
-                    return  # stay on YAML
-        self._active_tab = new_tab
 
     def _collect_widget_state(self) -> None:
         wf_doc = self._workflow_doc_instructions_widget
