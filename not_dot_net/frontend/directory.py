@@ -2,7 +2,7 @@ from contextlib import asynccontextmanager
 from datetime import date
 
 from nicegui import ui
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 
 from not_dot_net.backend.db import User, AuthMethod, session_scope, get_user_db
@@ -52,7 +52,7 @@ def compute_update_diff(current: dict, submitted: dict) -> dict:
 
 async def _load_people(include_inactive: bool = False) -> list[User]:
     async with session_scope() as session:
-        query = select(User)
+        query = select(User).order_by(func.lower(func.coalesce(User.full_name, User.email)))
         if not include_inactive:
             query = query.where(User.is_active == True)  # noqa: E712
         result = await session.execute(query)

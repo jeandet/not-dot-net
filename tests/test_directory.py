@@ -62,6 +62,33 @@ async def test_load_people_returns_only_active_users():
     assert "inactive-directory@test.com" not in emails
 
 
+async def test_load_people_sorted_by_display_name_case_insensitive():
+    """Users should come back sorted by full_name (or email when full_name is empty),
+    case-insensitively — matches the display order in the People tab.
+    """
+    from not_dot_net.backend.db import User
+    from not_dot_net.frontend.directory import _load_people
+
+    async with session_scope() as session:
+        # Insert in deliberately-jumbled order; full_name ranges across cases.
+        session.add_all([
+            User(email="zoe-sort@test.com", hashed_password="x", is_active=True, full_name="Zoe"),
+            User(email="alice-sort@test.com", hashed_password="x", is_active=True, full_name="alice"),  # lowercase
+            User(email="bob-sort@test.com", hashed_password="x", is_active=True, full_name="Bob"),
+            # Falls back to email when full_name is missing — email should sort by its lowercase form.
+            User(email="charlie-sort@test.com", hashed_password="x", is_active=True, full_name=None),
+        ])
+        await session.commit()
+
+    people = await _load_people()
+    sortable_names = [
+        (p.full_name or p.email).lower()
+        for p in people
+        if p.email.endswith("-sort@test.com")
+    ]
+    assert sortable_names == sorted(sortable_names)
+
+
 def test_classify_updates_splits_ad_and_local_fields():
     updates = {
         "phone": "+33999",
