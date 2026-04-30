@@ -47,6 +47,7 @@ dependencies = [
     "pyyaml",
     "alembic",
     "cryptography",
+    "phonenumbers",
 ]
 
 

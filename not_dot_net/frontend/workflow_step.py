@@ -119,6 +119,12 @@ async def _render_field(field_cfg, data, fields, files, on_file_upload, max_uplo
         fields[field_cfg.name] = ui.input(
             label=label, value=value, validation={t("invalid_email"): lambda v: "@" in v if v else True}
         ).props("outlined dense type=email").classes(width_class)
+    elif field_cfg.type == "phone":
+        from not_dot_net.backend.phone_validation import is_valid_phone
+        fields[field_cfg.name] = ui.input(
+            label=label, value=value,
+            validation={t("invalid_phone"): lambda v: is_valid_phone(v) if v else True},
+        ).props("outlined dense type=tel").classes(width_class)
     else:
         fields[field_cfg.name] = ui.input(
             label=label, value=value

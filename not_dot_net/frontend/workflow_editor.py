@@ -591,7 +591,7 @@ class WorkflowEditorDialog:
                              on_change=lambda e, i=idx, w=wf_key, sk=step.key:
                                  self.set_field_label_with_autoslug(w, sk, i, e.value)
                              ).props("dense outlined stack-label").classes("grow")
-                    ui.select(["text", "email", "textarea", "date", "select", "file"],
+                    ui.select(["text", "email", "phone", "textarea", "date", "select", "file", "location"],
                               value=field.type, label="type",
                               on_change=lambda e, i=idx, w=wf_key, sk=step.key:
                                   self.set_field_attr(w, sk, i, "type", e.value)

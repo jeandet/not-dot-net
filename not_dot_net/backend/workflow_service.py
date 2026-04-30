@@ -159,8 +159,8 @@ class WorkflowsConfig(BaseModel):
                     fields=[
                         FieldConfig(name="first_name", type="text", required=True, label="first_name", half_width=True),
                         FieldConfig(name="last_name", type="text", required=True, label="last_name", half_width=True),
-                        FieldConfig(name="phone", type="text", label="phone", half_width=True),
-                        FieldConfig(name="emergency_contact", type="text", label="emergency_contact", half_width=True),
+                        FieldConfig(name="phone", type="phone", label="phone", half_width=True),
+                        FieldConfig(name="emergency_contact", type="phone", label="emergency_contact", half_width=True),
                         FieldConfig(name="address", type="location", label="address"),
                         FieldConfig(name="id_document", type="file", required=True, label="id_document", encrypted=True),
                         FieldConfig(name="bank_details", type="file", required=True, label="bank_details", encrypted=True),
