@@ -1057,3 +1057,44 @@ async def test_yaml_button_swaps_body(user: User, admin_user):
     assert "label: A" in dlg._yaml_editor.value
     dlg._close_yaml_view()
     assert dlg._active_tab == "Form"
+
+
+async def test_unknown_recipient_warning(user: User, admin_user):
+    from not_dot_net.frontend.workflow_editor import WorkflowEditorDialog
+    from not_dot_net.config import NotificationRuleConfig
+    await workflows_config.set(WorkflowsConfig(workflows={
+        "a": WorkflowConfig(label="A", steps=[], notifications=[
+            NotificationRuleConfig(event="submit", notify=["nonexistent_role", "permission:made_up"]),
+        ]),
+    }))
+    captured = {}
+
+    @ui.page("/_unknown_recip")
+    async def _page():
+        captured["dlg"] = await WorkflowEditorDialog.create(admin_user)
+
+    await user.open("/_unknown_recip")
+    dlg = captured["dlg"]
+    warnings = dlg.compute_warnings()
+    assert any("nonexistent_role" in w for w in warnings)
+    assert any("permission:made_up" in w for w in warnings)
+
+
+async def test_dirty_indicator_visible_after_edit(user: User, admin_user):
+    from not_dot_net.frontend.workflow_editor import WorkflowEditorDialog
+    await workflows_config.set(WorkflowsConfig(workflows={
+        "a": WorkflowConfig(label="A", steps=[]),
+    }))
+    captured = {}
+
+    @ui.page("/_dirty_badge")
+    async def _page():
+        captured["dlg"] = await WorkflowEditorDialog.create(admin_user)
+
+    await user.open("/_dirty_badge")
+    dlg = captured["dlg"]
+    assert dlg._save_dirty_badge is None or not dlg._save_dirty_badge.visible
+    dlg.set_workflow_label("a", "Edited")
+    dlg._update_save_dirty_indicator()
+    assert dlg._save_dirty_badge is not None
+    assert dlg._save_dirty_badge.visible

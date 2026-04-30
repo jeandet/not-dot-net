@@ -74,6 +74,7 @@ class WorkflowEditorDialog:
         self._roles: dict = {}
         self._permissions: dict = {}
         self._unlocked_fields: set[tuple[str, str, str]] = set()
+        self._save_dirty_badge = None
 
     @classmethod
     async def create(cls, user) -> "WorkflowEditorDialog":
@@ -100,6 +101,12 @@ class WorkflowEditorDialog:
                     ui.button(t("cancel"), on_click=self._on_cancel_click).props("flat")
                     ui.button(t("reset_defaults"), on_click=self.reset).props("flat color=grey")
                     self._save_button = ui.button(t("save"), on_click=self.save).props("color=primary")
+                    with self._save_button:
+                        self._save_dirty_badge = ui.badge(color="warning", text_color="white"
+                                                          ).props("floating rounded")
+                        self._save_dirty_badge.text = "•"
+                        self._save_dirty_badge.tooltip(t("save_dirty_tooltip"))
+                        self._save_dirty_badge.visible = False
         self._render_form_body()
 
     def _render_form_body(self) -> None:
@@ -386,6 +393,7 @@ class WorkflowEditorDialog:
             else:
                 self._warnings_label.set_text("")
                 self._warnings_label.classes(replace="text-warning text-sm")
+        self._update_save_dirty_indicator()
 
     def _render_workflow_editor(self, wf_key: str, wf) -> None:
         from not_dot_net.frontend.widgets import keyed_chip_editor
@@ -702,6 +710,11 @@ class WorkflowEditorDialog:
         self._collect_widget_state()
         return self.working_copy.model_dump() != self.original.model_dump()
 
+    def _update_save_dirty_indicator(self) -> None:
+        if self._save_dirty_badge is None:
+            return
+        self._save_dirty_badge.visible = self.is_dirty()
+
     def compute_warnings(self) -> list[str]:
         warnings: list[str] = []
         org_list_keys = set(_org_list_field_names())
@@ -731,9 +744,15 @@ class WorkflowEditorDialog:
                         warnings.append(
                             f"[{wf_key}/{step.key}/{f.name}] options_key '{f.options_key}' is not an OrgConfig list field"
                         )
+            known_recip_values = {o["value"] for o in recipient_options(self._roles, self._permissions)}
             for nr in wf.notifications:
                 if nr.step and nr.step not in step_keys:
                     warnings.append(f"[{wf_key}] notification rule references missing step '{nr.step}'")
+                for v in (nr.notify or []):
+                    if v not in known_recip_values:
+                        warnings.append(
+                            f"[{wf_key}] notification recipient '{v}' not found in current roles or permissions"
+                        )
             di_seen: set[str] = set()
             for k in wf.document_instructions:
                 if k in di_seen:
