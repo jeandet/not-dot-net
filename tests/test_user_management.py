@@ -11,6 +11,21 @@ from not_dot_net.frontend.user_management import (
 )
 
 
+def test_columns_have_no_static_format_string():
+    """Quasar calls column.format as a function; a Python string would throw a JS
+    TypeError on every cell and cause the entire table to render no rows.
+    Dynamic JS bindings must use the ":format" prefix in NiceGUI, or the column
+    must drop format altogether.
+    """
+    for col in um._COLUMNS:
+        if "format" in col:
+            value = col["format"]
+            assert callable(value) or not isinstance(value, str), (
+                f"Column {col['name']!r} has a static string 'format' which Quasar "
+                f"will try to call as a function; rename to ':format' or remove."
+            )
+
+
 def _u(**kw) -> SimpleNamespace:
     """Build a User-shaped object for filter tests (avoids hitting DB)."""
     defaults = dict(

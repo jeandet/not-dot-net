@@ -7,7 +7,9 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import RedirectResponse
 from fastapi.security import OAuth2PasswordRequestForm
 from nicegui import app, ui
+from sqlalchemy import func, select
 
+from not_dot_net.backend.db import User, session_scope
 from not_dot_net.backend.users import get_user_manager, cookie_transport, get_jwt_strategy, current_active_user_optional
 from not_dot_net.frontend.i18n import t
 
@@ -49,6 +51,7 @@ async def handle_login(
         user = await _try_ldap_auth(username, password)
 
     if user is None or not user.is_active:
+        await _audit_failed_superuser_login(username, request)
         return RedirectResponse("/login?error=1", status_code=303)
 
     strategy = get_jwt_strategy()
@@ -60,6 +63,49 @@ async def handle_login(
 
     await user_manager.on_after_login(user, request)
     return response
+
+
+def _request_ip(request: Request) -> str | None:
+    forwarded_for = request.headers.get("x-forwarded-for")
+    if forwarded_for:
+        return forwarded_for.split(",", 1)[0].strip() or None
+    client = getattr(request, "client", None)
+    return getattr(client, "host", None)
+
+
+def _request_user_agent(request: Request) -> str | None:
+    return request.headers.get("user-agent")
+
+
+async def _audit_failed_superuser_login(username: str, request: Request) -> None:
+    email = username.strip().lower()
+    if not email:
+        return
+
+    async with session_scope() as session:
+        result = await session.execute(
+            select(User).where(func.lower(User.email) == email)
+        )
+        user = result.scalar_one_or_none()
+
+    if user is None or not user.is_superuser:
+        return
+
+    ip = _request_ip(request)
+    user_agent = _request_user_agent(request)
+    from not_dot_net.backend.audit import log_audit
+    await log_audit(
+        "auth", "login",
+        actor_id=user.id,
+        actor_email=user.email,
+        detail=f"Login Failed ip={ip or 'unknown'}",
+        metadata={
+            "ip": ip,
+            "user_agent": user_agent,
+            "is_superuser": True,
+            "success": False,
+        },
+    )
 
 
 async def _try_ldap_auth(username: str, password: str):

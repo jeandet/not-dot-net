@@ -158,7 +158,7 @@ _COLUMNS = [
     {"name": "is_active",         "label": "is_active",         "field": "is_active",         "sortable": True, "align": "center"},
     {"name": "employment_status", "label": "employment_status", "field": "employment_status", "sortable": True, "align": "left"},
     {"name": "last_ad_logon",     "label": "last_ad_logon",     "field": "last_ad_logon_sort","sortable": True, "align": "left",
-     "format": "(val,row) => row.last_ad_logon"},
+     ":format": "(val,row) => row.last_ad_logon"},
 ]
 
 

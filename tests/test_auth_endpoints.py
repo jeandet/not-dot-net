@@ -2,6 +2,7 @@
 
 import pytest
 from contextlib import asynccontextmanager
+from types import SimpleNamespace
 
 from not_dot_net.backend.db import User, session_scope, get_user_db
 from not_dot_net.backend.audit import list_audit_events
@@ -31,8 +32,10 @@ async def _authenticate_via_manager(email, password):
 
 
 class _FakeRequest:
-    def __init__(self, form_data):
+    def __init__(self, form_data, *, client_host=None, headers=None):
         self._form_data = form_data
+        self.client = SimpleNamespace(host=client_host) if client_host else None
+        self.headers = headers or {}
 
     async def form(self):
         return self._form_data
@@ -234,6 +237,44 @@ async def test_login_endpoint_success_emits_audit_event():
     assert events[0].actor_email == "audit-success@test.com"
 
 
+async def test_superuser_successful_login_emits_audit_with_ip_role_metadata():
+    user = await _create_user_via_manager("admin-success@test.com", "CorrectPassword1!")
+    async with session_scope() as session:
+        db_user = await session.get(User, user.id)
+        assert db_user is not None
+        db_user.is_superuser = True
+        db_user.role = "security_admin"
+        await session.commit()
+
+    async with session_scope() as session:
+        async with asynccontextmanager(get_user_db)(session) as user_db:
+            async with asynccontextmanager(get_user_manager)(user_db) as user_manager:
+                response = await handle_login(
+                    _FakeRequest(
+                        {
+                            "username": "admin-success@test.com",
+                            "password": "CorrectPassword1!",
+                        },
+                        client_host="10.0.0.24",
+                        headers={"user-agent": "pytest-browser"},
+                    ),
+                    user_manager=user_manager,
+                )
+
+    assert response.status_code == 303
+    events = await list_audit_events(category="auth", action="login")
+    assert len(events) == 1
+    assert events[0].actor_email == "admin-success@test.com"
+    assert events[0].detail == "Login Success ip=10.0.0.24 role=security_admin is_superuser=True"
+    assert events[0].metadata_json == {
+        "ip": "10.0.0.24",
+        "user_agent": "pytest-browser",
+        "role": "security_admin",
+        "is_superuser": True,
+        "success": True,
+    }
+
+
 async def test_login_endpoint_failed_login_does_not_emit_success_audit_event():
     await _create_user_via_manager("audit-failure@test.com", "CorrectPassword1!")
 
@@ -250,6 +291,40 @@ async def test_login_endpoint_failed_login_does_not_emit_success_audit_event():
     assert response.status_code == 303
     assert response.headers["location"] == "/login?error=1"
     assert await list_audit_events(category="auth", action="login") == []
+
+
+async def test_superuser_failed_login_emits_audit_with_ip_metadata():
+    user = await _create_user_via_manager("admin-fail@test.com", "CorrectPassword1!")
+    async with session_scope() as session:
+        db_user = await session.get(User, user.id)
+        assert db_user is not None
+        db_user.is_superuser = True
+        await session.commit()
+
+    async with session_scope() as session:
+        async with asynccontextmanager(get_user_db)(session) as user_db:
+            async with asynccontextmanager(get_user_manager)(user_db) as user_manager:
+                response = await handle_login(
+                    _FakeRequest(
+                        {"username": "admin-fail@test.com", "password": "WrongPassword!"},
+                        client_host="10.0.0.42",
+                        headers={"user-agent": "pytest-browser"},
+                    ),
+                    user_manager=user_manager,
+                )
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/login?error=1"
+    events = await list_audit_events(category="auth", action="login")
+    assert len(events) == 1
+    assert events[0].actor_email == "admin-fail@test.com"
+    assert events[0].detail == "Login Failed ip=10.0.0.42"
+    assert events[0].metadata_json == {
+        "ip": "10.0.0.42",
+        "user_agent": "pytest-browser",
+        "is_superuser": True,
+        "success": False,
+    }
 
 
 async def test_login_endpoint_falls_back_to_ldap_when_local_auth_fails(monkeypatch):
