@@ -56,12 +56,12 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         logger.info("User %s registered", user.id)
 
     async def on_after_login(self, user: User, request: Request | None = None, response=None):
-        from not_dot_net.backend.audit import log_audit
+        from not_dot_net.backend.audit import log_audit, request_ip, request_user_agent
         if not user.is_superuser:
             await log_audit("auth", "login", actor_id=user.id, actor_email=user.email)
             return
 
-        ip = _request_ip(request)
+        ip = request_ip(request)
         await log_audit(
             "auth", "login",
             actor_id=user.id,
@@ -69,7 +69,7 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
             detail=f"Login Success ip={ip or 'unknown'} role={user.role or '(none)'} is_superuser=True",
             metadata={
                 "ip": ip,
-                "user_agent": _request_user_agent(request),
+                "user_agent": request_user_agent(request),
                 "role": user.role,
                 "is_superuser": True,
                 "success": True,
@@ -86,22 +86,6 @@ async def get_user_manager(
     user_db: SQLAlchemyUserDatabase = Depends(get_user_db),
 ):
     yield UserManager(user_db)
-
-
-def _request_ip(request: Request | None) -> str | None:
-    if request is None:
-        return None
-    forwarded_for = request.headers.get("x-forwarded-for")
-    if forwarded_for:
-        return forwarded_for.split(",", 1)[0].strip() or None
-    client = getattr(request, "client", None)
-    return getattr(client, "host", None)
-
-
-def _request_user_agent(request: Request | None) -> str | None:
-    if request is None:
-        return None
-    return request.headers.get("user-agent")
 
 
 bearer_transport = BearerTransport(tokenUrl="auth/jwt/login")

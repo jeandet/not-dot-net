@@ -65,18 +65,6 @@ async def handle_login(
     return response
 
 
-def _request_ip(request: Request) -> str | None:
-    forwarded_for = request.headers.get("x-forwarded-for")
-    if forwarded_for:
-        return forwarded_for.split(",", 1)[0].strip() or None
-    client = getattr(request, "client", None)
-    return getattr(client, "host", None)
-
-
-def _request_user_agent(request: Request) -> str | None:
-    return request.headers.get("user-agent")
-
-
 async def _audit_failed_superuser_login(username: str, request: Request) -> None:
     email = username.strip().lower()
     if not email:
@@ -91,9 +79,8 @@ async def _audit_failed_superuser_login(username: str, request: Request) -> None
     if user is None or not user.is_superuser:
         return
 
-    ip = _request_ip(request)
-    user_agent = _request_user_agent(request)
-    from not_dot_net.backend.audit import log_audit
+    from not_dot_net.backend.audit import log_audit, request_ip, request_user_agent
+    ip = request_ip(request)
     await log_audit(
         "auth", "login",
         actor_id=user.id,
@@ -101,7 +88,7 @@ async def _audit_failed_superuser_login(username: str, request: Request) -> None
         detail=f"Login Failed ip={ip or 'unknown'}",
         metadata={
             "ip": ip,
-            "user_agent": user_agent,
+            "user_agent": request_user_agent(request),
             "is_superuser": True,
             "success": False,
         },

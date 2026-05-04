@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 
 from nicegui import ui
 
-from not_dot_net.backend.audit import list_audit_events
+from not_dot_net.backend.audit import AuditEventView, list_audit_events
 from not_dot_net.frontend.i18n import t
 from not_dot_net.backend.permissions import permission
 
@@ -13,27 +13,25 @@ VIEW_AUDIT_LOG = permission("view_audit_log", "View audit log", "Access the audi
 CATEGORIES = ["auth", "workflow", "booking", "resource", "user", "settings", "personal_data"]
 FILTER_CONTROL_HEIGHT = "40px"
 
-SEVERITY_FILTERS = {
-    "": "All",
-    "green": "Normal",
-    "orange": "Sensitive",
-    "red": "Critical",
+SEVERITY_ORDER = ("green", "orange", "red")
+
+SEVERITY_ROW_COLOR = {
+    "green": "#DCEFE2",
+    "orange": "#FFE6B8",
+    "red": "#FFB3B3",
 }
 
-SEVERITY_STYLES = {
-    "green": {
-        "label": "Normal",
-        "row": "#DCEFE2",
-    },
-    "orange": {
-        "label": "Sensitive",
-        "row": "#FFE6B8",
-    },
-    "red": {
-        "label": "Critical",
-        "row": "#FFB3B3",
-    },
+SEVERITY_LABEL_KEY = {
+    "green": "audit_severity_normal",
+    "orange": "audit_severity_sensitive",
+    "red": "audit_severity_critical",
 }
+
+# Severity drives off (category, action) and metadata_json — never off the
+# free-form `detail` string. The only exception is settings update/reset
+# where the section name comes through detail today (`section={prefix}`),
+# and we match it exactly.
+_CRITICAL_SETTINGS_SECTIONS = {"section=roles", "section=ldap"}
 
 TIME_PERIOD_DAYS = {
     "last_7_days": 7,
@@ -51,44 +49,68 @@ def _since_from_period(period_key: str) -> datetime | None:
     return datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=days)
 
 
-def _audit_severity(category: str, action: str, detail: str | None) -> str:
-    detail = detail or ""
-    if category == "auth" and action == "login" and "is_superuser=True" in detail:
-        return "red"
-    if category == "auth" and action == "login" and "Login Failed" in detail:
-        return "red"
-    if category == "settings" and action == "update_role":
-        return "red"
-    if category == "settings" and action in {"update", "reset"}:
-        if any(section in detail for section in ("section=roles", "section=ldap")):
+def _audit_severity(ev) -> str:
+    """Classify an audit event into a severity color. Driven off
+    (category, action) and `metadata_json` — the human-readable `detail`
+    string is consulted only for settings sections (where we match exactly,
+    never with `in`)."""
+    cat, action = ev.category, ev.action
+    meta = ev.metadata_json or {}
+
+    if cat == "auth" and action == "login":
+        if meta.get("success") is False:
             return "red"
+        if meta.get("is_superuser"):
+            return "red"
+        return "green"
+
+    if cat == "settings":
+        if action == "update_role":
+            return "red"
+        if action in {"update", "reset"}:
+            if (ev.detail or "") in _CRITICAL_SETTINGS_SECTIONS:
+                return "red"
+            return "orange"
+        if action in {"export", "import", "ldap_sync"}:
+            return "orange"
+
+    if cat == "personal_data" and action == "download":
         return "orange"
-    if category == "personal_data" and action == "download":
+
+    if cat == "workflow" and action == "resend_notification":
         return "orange"
-    if category == "settings" and action in {"export", "import", "ldap_sync"}:
-        return "orange"
-    if category == "workflow" and action == "resend_notification":
-        return "orange"
-    if category == "user" and action in {"add_tenure", "update_tenure", "delete_tenure"}:
-        return "orange"
-    if category == "user" and action == "update" and "role" in detail:
-        return "red"
+
+    if cat == "user":
+        if action in {"add_tenure", "update_tenure", "delete_tenure"}:
+            return "orange"
+        if action == "update" and "role" in (meta.get("changes") or {}):
+            return "red"
+
     return "green"
 
 
-def _relative_time_label(dt: datetime | None) -> str:
+def _relative_time_label(dt: datetime | None, *, now: datetime | None = None) -> str:
+    """Compact 'today/yesterday/before yesterday/N days ago' label.
+    `now` is overridable for testing."""
     if dt is None:
         return ""
-    today = datetime.now(timezone.utc).replace(tzinfo=None).date()
-    days = (today - dt.date()).days
-    hour = dt.strftime("%Hh%M")
-    if days == 0:
+    now = now or datetime.now(timezone.utc).replace(tzinfo=None)
+    days = (now.date() - dt.date()).days
+    hour = dt.strftime("%H:%M")
+    if days <= 0:
         return hour
     if days == 1:
-        return f"hier {hour}"
+        return t("audit_time_yesterday", time=hour)
     if days == 2:
-        return f"avant-hier {hour}"
-    return f"{days}d ago"
+        return t("audit_time_before_yesterday", time=hour)
+    return t("audit_time_days_ago", days=days)
+
+
+def _severity_filter_options() -> dict:
+    options = {"": t("audit_severity_all")}
+    for sev in SEVERITY_ORDER:
+        options[sev] = t(SEVERITY_LABEL_KEY[sev])
+    return options
 
 
 def render():
@@ -98,6 +120,28 @@ def render():
         await _render_log(container)
 
     ui.timer(0, refresh, once=True)
+
+
+def _format_full(dt: datetime | None) -> str:
+    return dt.strftime("%Y-%m-%d %H:%M:%S") if dt else ""
+
+
+def _build_row(ev: AuditEventView, severity: str, relative_time: bool) -> dict:
+    full = _format_full(ev.created_at)
+    relative = _relative_time_label(ev.created_at)
+    return {
+        "_id": str(ev.id),
+        "time": relative if relative_time else full,
+        "time_full": full,
+        "time_relative": relative,
+        "category": ev.category,
+        "action": ev.action,
+        "actor": ev.actor_display or "—",
+        "target": f"{ev.target_type}: {ev.target_display}" if ev.target_type and ev.target_display else "—",
+        "detail": ev.detail or "",
+        "severity": severity,
+        "severity_row": SEVERITY_ROW_COLOR[severity],
+    }
 
 
 async def _render_log(
@@ -117,12 +161,10 @@ async def _render_log(
 
     period_options = {k: t(k) for k in TIME_PERIOD_DAYS}
     relative_state = {"enabled": relative_time}
-    severity_counts = {key: 0 for key in SEVERITY_STYLES}
-    event_severities = {}
-    for ev in events:
-        severity = _audit_severity(ev.category, ev.action, ev.detail)
-        event_severities[str(ev.id)] = severity
-        severity_counts[severity] += 1
+    severities = [_audit_severity(ev) for ev in events]
+    severity_counts = {key: 0 for key in SEVERITY_ORDER}
+    for sev in severities:
+        severity_counts[sev] += 1
 
     with container:
         ui.label(t("audit_log")).classes("text-h6 mb-2")
@@ -147,9 +189,9 @@ async def _render_log(
             ).props("outlined dense clearable").classes("min-w-[200px]")
 
             severity_select = ui.select(
-                options=SEVERITY_FILTERS,
+                options=_severity_filter_options(),
                 value=severity_filter,
-                label="Type",
+                label=t("audit_severity"),
             ).props("outlined dense").classes("min-w-[140px]")
 
             async def apply():
@@ -170,6 +212,9 @@ async def _render_log(
                 "flat color=primary"
             )
 
+            def _time_button_tooltip() -> str:
+                return t("audit_time_full") if relative_state["enabled"] else t("audit_time_relative")
+
             async def toggle_time_display():
                 relative_state["enabled"] = not relative_state["enabled"]
                 for row in rows:
@@ -183,9 +228,7 @@ async def _render_log(
                 time_button.props(
                     f"flat round dense color={'primary' if relative_state['enabled'] else 'grey'}"
                 )
-                time_button.tooltip(
-                    "Relative time" if relative_state["enabled"] else "Full timestamp"
-                )
+                time_button.tooltip(_time_button_tooltip())
 
             with ui.element("div").style(
                 f"height: {FILTER_CONTROL_HEIGHT}; display: flex; align-items: center;"
@@ -195,19 +238,18 @@ async def _render_log(
                     on_click=toggle_time_display,
                 ).props(
                     f"flat round dense color={'primary' if relative_state['enabled'] else 'grey'}"
-                ).tooltip("Relative time" if relative_state["enabled"] else "Full timestamp")
+                ).tooltip(_time_button_tooltip())
 
             with ui.element("div").style(
                 f"height: {FILTER_CONTROL_HEIGHT}; display: flex; align-items: center;"
             ):
                 with ui.row().classes("items-center gap-1"):
-                    for severity in ("green", "orange", "red"):
-                        styles = SEVERITY_STYLES[severity]
+                    for severity in SEVERITY_ORDER:
                         ui.label(
-                            f"{styles['label']} {severity_counts[severity]}"
+                            f"{t(SEVERITY_LABEL_KEY[severity])} {severity_counts[severity]}"
                         ).classes("px-2 py-1 text-caption rounded-borders").style(
                             "background-color: "
-                            f"{styles['row']}; color: #263238; "
+                            f"{SEVERITY_ROW_COLOR[severity]}; color: #263238; "
                             "border: 1px solid rgba(0, 0, 0, 0.14); "
                             "line-height: 1.2;"
                         )
@@ -226,28 +268,11 @@ async def _render_log(
             {"name": "detail", "label": t("detail"), "field": "detail", "align": "left"},
         ]
 
-        rows = []
-        for ev in events:
-            detail = ev.detail or ""
-            severity = event_severities[str(ev.id)]
-            if severity_filter and severity != severity_filter:
-                continue
-            styles = SEVERITY_STYLES[severity]
-            rows.append({
-                "_id": str(ev.id),
-                "time": _relative_time_label(ev.created_at) if relative_time else (
-                    ev.created_at.strftime("%Y-%m-%d %H:%M:%S") if ev.created_at else ""
-                ),
-                "time_full": ev.created_at.strftime("%Y-%m-%d %H:%M:%S") if ev.created_at else "",
-                "time_relative": _relative_time_label(ev.created_at),
-                "category": ev.category,
-                "action": ev.action,
-                "actor": ev.actor_display or "—",
-                "target": f"{ev.target_type}: {ev.target_display}" if ev.target_type and ev.target_display else "—",
-                "detail": detail,
-                "severity": severity,
-                "severity_row": styles["row"],
-            })
+        rows = [
+            _build_row(ev, sev, relative_time)
+            for ev, sev in zip(events, severities)
+            if not severity_filter or sev == severity_filter
+        ]
 
         if not rows:
             ui.label(t("no_events")).classes("text-grey")
@@ -259,6 +284,9 @@ async def _render_log(
         ).classes("w-full")
         table.props("flat bordered dense")
 
+        # NOTE: this `body` slot replaces the entire row template — any new
+        # column added to `columns` above must also be added below or it
+        # will silently disappear from the rendered table.
         table.add_slot("body", r'''
             <q-tr :props="props" :style="{ backgroundColor: props.row.severity_row }">
                 <q-td key="time" :props="props">{{ props.row.time }}</q-td>

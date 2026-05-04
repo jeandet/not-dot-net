@@ -49,6 +49,24 @@ class AuditEvent(MappedAsDataclass, Base, kw_only=True):
     created_at: Mapped[datetime] = mapped_column(server_default=func.now(), default=None, index=True)
 
 
+def request_ip(request) -> str | None:
+    """Best-effort client IP from a Starlette/FastAPI request, honoring
+    X-Forwarded-For (the app runs behind HAProxy in production)."""
+    if request is None:
+        return None
+    forwarded_for = request.headers.get("x-forwarded-for")
+    if forwarded_for:
+        return forwarded_for.split(",", 1)[0].strip() or None
+    client = getattr(request, "client", None)
+    return getattr(client, "host", None)
+
+
+def request_user_agent(request) -> str | None:
+    if request is None:
+        return None
+    return request.headers.get("user-agent")
+
+
 async def log_audit(
     category: str,
     action: str,
