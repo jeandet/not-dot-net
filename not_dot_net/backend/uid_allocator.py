@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from sqlalchemy import String, DateTime, ForeignKey, select, func
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Mapped, mapped_column, MappedAsDataclass
 
 from not_dot_net.backend.db import Base, session_scope
@@ -71,7 +72,13 @@ async def allocate_uid(user_id: uuid.UUID, sam_account: str) -> int:
             uid=chosen, source="allocated",
             user_id=user_id, sam_account=sam_account,
         ))
-        await session.commit()
+        try:
+            await session.commit()
+        except IntegrityError:
+            await session.rollback()
+            raise UidRangeExhausted(
+                f"UID {chosen} was taken concurrently — retry with a fresh session"
+            )
 
     await log_audit(
         category="ad", action="allocate_uid",

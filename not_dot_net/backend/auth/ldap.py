@@ -499,7 +499,7 @@ def ldap_user_exists_by_sam(
     try:
         ok = conn.search(
             ldap_cfg.base_dn,
-            f"(sAMAccountName={sam})",
+            f"(sAMAccountName={escape_filter_chars(sam)})",
             attributes=["sAMAccountName"],
         )
         return bool(ok and conn.entries)

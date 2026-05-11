@@ -271,9 +271,23 @@ async def _render_action_panel(container, user, req, step_config, wf, request_id
         )
 
         if step_config.type == "approval":
+            from not_dot_net.backend.workflow_effects import AdCredentialsRequired
+            from not_dot_net.frontend.ad_credentials import prompt_ad_credentials
+
             async def handle_approve(comment):
                 try:
                     await submit_step(req.id, user.id, "approve", comment=comment, actor_user=user)
+                except AdCredentialsRequired:
+                    async def _retry_approve(bu, bp):
+                        try:
+                            await submit_step(req.id, user.id, "approve", comment=comment, actor_user=user, ad_creds=(bu, bp))
+                        except Exception as e:
+                            ui.notify(str(e), color="negative")
+                            return
+                        ui.notify(t("step_submitted"), color="positive")
+                        ui.navigate.to(f"/workflow/request/{request_id_str}")
+                    await prompt_ad_credentials(user, _retry_approve)
+                    return
                 except Exception as e:
                     ui.notify(str(e), color="negative")
                     return
@@ -283,6 +297,17 @@ async def _render_action_panel(container, user, req, step_config, wf, request_id
             async def handle_reject(comment):
                 try:
                     await submit_step(req.id, user.id, "reject", comment=comment, actor_user=user)
+                except AdCredentialsRequired:
+                    async def _retry_reject(bu, bp):
+                        try:
+                            await submit_step(req.id, user.id, "reject", comment=comment, actor_user=user, ad_creds=(bu, bp))
+                        except Exception as e:
+                            ui.notify(str(e), color="negative")
+                            return
+                        ui.notify(t("step_submitted"), color="positive")
+                        ui.navigate.to(f"/workflow/request/{request_id_str}")
+                    await prompt_ad_credentials(user, _retry_reject)
+                    return
                 except Exception as e:
                     ui.notify(str(e), color="negative")
                     return
@@ -292,6 +317,17 @@ async def _render_action_panel(container, user, req, step_config, wf, request_id
             async def handle_corrections(comment):
                 try:
                     await submit_step(req.id, user.id, "request_corrections", comment=comment, actor_user=user)
+                except AdCredentialsRequired:
+                    async def _retry_corrections(bu, bp):
+                        try:
+                            await submit_step(req.id, user.id, "request_corrections", comment=comment, actor_user=user, ad_creds=(bu, bp))
+                        except Exception as e:
+                            ui.notify(str(e), color="negative")
+                            return
+                        ui.notify(t("corrections_requested"), color="positive")
+                        ui.navigate.to(f"/workflow/request/{request_id_str}")
+                    await prompt_ad_credentials(user, _retry_corrections)
+                    return
                 except Exception as e:
                     ui.notify(str(e), color="negative")
                     return

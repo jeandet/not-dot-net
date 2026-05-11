@@ -70,6 +70,7 @@ from not_dot_net.backend.auth.ldap import (  # noqa: F401
     NewAdUser,
     LdapModifyError,
     get_ldap_connect,
+    USERNAME_RE,
 )
 
 
@@ -982,6 +983,8 @@ async def _handle_ad_account_creation(
     bind_user, bind_pw = ad_creds
 
     sam = form_data["sam_account"].strip()
+    if not sam or not USERNAME_RE.fullmatch(sam):
+        raise ValueError(f"Invalid sAMAccountName: {sam!r} — must match [a-zA-Z0-9._-]{{1,64}}")
     if _ldap_user_exists(sam, bind_user, bind_pw, ldap_cfg, _connect):
         raise ValueError(f"sAMAccountName already exists in AD: {sam}")
 

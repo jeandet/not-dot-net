@@ -130,3 +130,43 @@ async def test_ad_account_creation_group_failures_returned_not_raised(monkeypatc
             "groups": ["CN=g,DC=x"]}
     result = await _handle_ad_account_creation(request, form, ("a", "p"), MagicMock())
     assert result.group_failures == {"CN=g,DC=x": "denied"}
+
+
+@pytest.mark.asyncio
+async def test_ad_account_creation_ad_create_failure_keeps_uid(monkeypatch):
+    """If AD create fails after UID allocation, the UID row stays — no reuse."""
+    from not_dot_net.backend.workflow_service import _handle_ad_account_creation
+    from not_dot_net.backend.ad_account_config import ad_account_config
+    from not_dot_net.backend.db import session_scope, User, AuthMethod
+    from not_dot_net.backend.uid_allocator import UidAllocation
+    from not_dot_net.backend.auth.ldap import LdapModifyError
+    from sqlalchemy import select
+    import not_dot_net.backend.workflow_service as ws
+
+    cfg = await ad_account_config.get()
+    await ad_account_config.set(cfg.model_copy(update={
+        "users_ous": ["OU=Users,DC=x"], "eligible_groups": [],
+    }))
+    monkeypatch.setattr(ws, "ldap_user_exists_by_sam", lambda *a, **kw: False, raising=False)
+
+    def fail_create(*a, **kw):
+        raise LdapModifyError("simulated AD failure")
+    monkeypatch.setattr(ws, "ldap_create_user", fail_create, raising=False)
+
+    async with session_scope() as session:
+        target = User(email="t4@example.com", full_name="T4", hashed_password="x",
+                      auth_method=AuthMethod.LOCAL, role="", is_active=False)
+        session.add(target)
+        await session.commit()
+        await session.refresh(target)
+
+    request = MagicMock(target_email="t4@example.com", id="req-4", type="onboarding")
+    form = {"first_name": "A", "last_name": "S", "sam_account": "as4",
+            "ou_dn": "OU=Users,DC=x", "mail": "a@b.c", "home_directory": "/h"}
+    with pytest.raises(LdapModifyError):
+        await _handle_ad_account_creation(request, form, ("a", "p"), MagicMock())
+
+    # UID was allocated even though create failed.
+    async with session_scope() as session:
+        rows = (await session.execute(select(UidAllocation))).scalars().all()
+    assert any(r.sam_account == "as4" for r in rows), "UID row missing — no-reuse invariant violated"
