@@ -38,10 +38,17 @@ async def _setup_roles():
 
 
 @pytest.mark.asyncio
-async def test_full_onboarding_with_encrypted_files():
+async def test_full_onboarding_with_encrypted_files(monkeypatch):
     await _setup_roles()
     initiator = await _create_user(email="initiator@test.com", role="staff")
     admin = await _create_user(email="admin@test.com", role="admin")
+
+    # Monkeypatch AD primitives to bypass LDAP
+    import not_dot_net.backend.workflow_service as ws
+    monkeypatch.setattr(ws, "ldap_user_exists_by_sam", lambda *a, **kw: False)
+    monkeypatch.setattr(ws, "ldap_create_user",
+                        lambda new_user, bu, bp, cfg, connect=None: f"CN={new_user.display_name},OU=Users,DC=x,DC=y")
+    monkeypatch.setattr(ws, "ldap_add_to_groups", lambda *a, **kw: {})
 
     # Step 1: Initiation
     req = await create_request(
@@ -96,8 +103,30 @@ async def test_full_onboarding_with_encrypted_files():
     req = await submit_step(req.id, admin.id, "approve", data={}, actor_user=admin)
     assert req.current_step == "it_account_creation"
 
-    # Step 4: IT completes
-    req = await submit_step(req.id, admin.id, "complete", data={"notes": "account: mcurie"}, actor_user=admin)
+    # Step 4: IT completes (ad_account_creation requires AD creds and form data)
+    from not_dot_net.backend.ad_account_config import ad_account_config
+    from not_dot_net.backend.db import AuthMethod
+    
+    # Create the target user (newcomer) in the database so ad_account_creation can find them
+    newcomer = await _create_user(email="newcomer@example.com", role="staff")
+    
+    cfg = await ad_account_config.get()
+    await ad_account_config.set(cfg.model_copy(update={
+        "users_ous": ["OU=Users,DC=x,DC=y"],
+        "eligible_groups": [],
+    }))
+    
+    req = await submit_step(
+        req.id, admin.id, "complete",
+        data={
+            "first_name": "Marie", "last_name": "Curie",
+            "sam_account": "mcurie", "ou_dn": "OU=Users,DC=x,DC=y",
+            "mail": "marie.curie@example.com", "home_directory": "/home/mcurie",
+            "groups": [],
+        },
+        actor_user=admin,
+        ad_creds=("admin", "password"),
+    )
     assert req.status == "completed"
 
     async with session_scope() as session:
@@ -106,10 +135,14 @@ async def test_full_onboarding_with_encrypted_files():
 
 
 @pytest.mark.asyncio
-async def test_request_corrections_regenerates_token():
+async def test_request_corrections_regenerates_token(monkeypatch):
     await _setup_roles()
     initiator = await _create_user(email="init@test.com", role="staff")
     admin = await _create_user(email="adm@test.com", role="admin")
+
+    # Monkeypatch AD primitives (not needed for this test but ensures consistency)
+    import not_dot_net.backend.workflow_service as ws
+    monkeypatch.setattr(ws, "ldap_user_exists_by_sam", lambda *a, **kw: False)
 
     req = await create_request(
         workflow_type="onboarding",
@@ -138,9 +171,13 @@ async def test_request_corrections_regenerates_token():
 
 
 @pytest.mark.asyncio
-async def test_save_draft_preserves_data():
+async def test_save_draft_preserves_data(monkeypatch):
     await _setup_roles()
     initiator = await _create_user(email="init2@test.com", role="staff")
+
+    # Monkeypatch AD primitives (not needed for this test but ensures consistency)
+    import not_dot_net.backend.workflow_service as ws
+    monkeypatch.setattr(ws, "ldap_user_exists_by_sam", lambda *a, **kw: False)
 
     req = await create_request(
         workflow_type="onboarding",

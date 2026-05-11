@@ -89,7 +89,7 @@ async def test_approve_completes_workflow():
         data={"target_name": "Alice", "target_email": "alice@test.com"},
     )
     req = await submit_step(req.id, staff.id, "submit", data={}, actor_user=staff)
-    req = await submit_step(req.id, director.id, "approve", data={}, actor_user=director)
+    req = await submit_step(req.id, director.id, "approve", data={}, actor_user=director, ad_creds=("admin", "pass"))
     assert req.status == "completed"
 
 
@@ -200,7 +200,7 @@ async def test_token_cleared_on_approval():
         data={"target_name": "Alice", "target_email": "alice@test.com"},
     )
     req = await submit_step(req.id, staff.id, "submit", data={}, actor_user=staff)
-    req = await submit_step(req.id, director.id, "approve", data={}, actor_user=director)
+    req = await submit_step(req.id, director.id, "approve", data={}, actor_user=director, ad_creds=("admin", "pass"))
     assert req.token is None
     assert req.token_expires_at is None
 
@@ -231,7 +231,7 @@ async def test_list_actionable_returns_only_in_progress():
         data={"target_name": "A", "target_email": "a@test.com"},
     )
     req = await submit_step(req.id, staff.id, "submit", data={}, actor_user=staff)
-    req = await submit_step(req.id, director.id, "approve", data={}, actor_user=director)
+    req = await submit_step(req.id, director.id, "approve", data={}, actor_user=director, ad_creds=("admin", "pass"))
     assert req.status == "completed"
 
     actionable = await list_actionable(director)
@@ -262,7 +262,7 @@ async def test_create_request_allowed_with_permission():
     assert req.type == "vpn_access"
 
 
-async def test_onboarding_v2_full_flow():
+async def test_onboarding_v2_full_flow(monkeypatch):
     """Test the complete 4-step onboarding: initiation → newcomer_info → admin_validation → it_account_creation."""
     await _setup_roles()
     cfg = await roles_config.get()
@@ -272,6 +272,16 @@ async def test_onboarding_v2_full_flow():
 
     initiator = await _create_user(email="initiator@test.com", role="staff")
     admin = await _create_user(email="admin@test.com", role="admin")
+
+    # Monkeypatch AD primitives to bypass LDAP
+    import not_dot_net.backend.workflow_service as ws
+    monkeypatch.setattr(ws, "ldap_user_exists_by_sam", lambda *a, **kw: False)
+    monkeypatch.setattr(ws, "ldap_create_user",
+                        lambda new_user, bu, bp, cfg, connect=None: f"CN={new_user.display_name},OU=Users,DC=x,DC=y")
+    monkeypatch.setattr(ws, "ldap_add_to_groups", lambda *a, **kw: {})
+
+    # Create target user for ad_account_creation step
+    newcomer = await _create_user(email="newcomer@example.com", role="staff")
 
     # Step 1: Initiation
     req = await create_request(
@@ -298,8 +308,25 @@ async def test_onboarding_v2_full_flow():
     req = await submit_step(req.id, admin.id, "approve", data={}, actor_user=admin)
     assert req.current_step == "it_account_creation"
 
-    # Step 4: IT marks complete
-    req = await submit_step(req.id, admin.id, "complete", data={"notes": "account: mcurie"}, actor_user=admin)
+    # Step 4: IT marks complete (ad_account_creation step requires AD creds and form data)
+    from not_dot_net.backend.ad_account_config import ad_account_config
+    ad_cfg = await ad_account_config.get()
+    await ad_account_config.set(ad_cfg.model_copy(update={
+        "users_ous": ["OU=Users,DC=x,DC=y"],
+        "eligible_groups": [],
+    }))
+    
+    req = await submit_step(
+        req.id, admin.id, "complete",
+        data={
+            "first_name": "Marie", "last_name": "Curie",
+            "sam_account": "mcurie", "ou_dn": "OU=Users,DC=x,DC=y",
+            "mail": "marie.curie@example.com", "home_directory": "/home/mcurie",
+            "groups": [],
+        },
+        actor_user=admin,
+        ad_creds=("admin", "password"),
+    )
     assert req.status == "completed"
 
 
@@ -415,7 +442,7 @@ async def test_onboarding_target_step_blocks_unrelated_user_without_token():
         )
 
 
-async def test_onboarding_completion_marks_encrypted_files_for_retention():
+async def test_onboarding_completion_marks_encrypted_files_for_retention(monkeypatch):
     await _setup_roles()
     cfg = await roles_config.get()
     cfg.roles["admin"].permissions.append("access_personal_data")
@@ -424,6 +451,16 @@ async def test_onboarding_completion_marks_encrypted_files_for_retention():
 
     initiator = await _create_user(email="initiator@test.com", role="staff")
     admin = await _create_user(email="admin@test.com", role="admin")
+
+    # Monkeypatch AD primitives to bypass LDAP
+    import not_dot_net.backend.workflow_service as ws
+    monkeypatch.setattr(ws, "ldap_user_exists_by_sam", lambda *a, **kw: False)
+    monkeypatch.setattr(ws, "ldap_create_user",
+                        lambda new_user, bu, bp, cfg, connect=None: f"CN={new_user.display_name},OU=Users,DC=x,DC=y")
+    monkeypatch.setattr(ws, "ldap_add_to_groups", lambda *a, **kw: {})
+
+    # Create target user for ad_account_creation step
+    newcomer = await _create_user(email="newcomer@example.com", role="staff")
 
     req = await create_request(
         workflow_type="onboarding",
@@ -463,7 +500,26 @@ async def test_onboarding_completion_marks_encrypted_files_for_retention():
         actor_token=req.token,
     )
     req = await submit_step(req.id, admin.id, "approve", data={}, actor_user=admin)
-    req = await submit_step(req.id, admin.id, "complete", data={}, actor_user=admin)
+    
+    # Set up AD config and credentials for the complete action
+    from not_dot_net.backend.ad_account_config import ad_account_config
+    ad_cfg = await ad_account_config.get()
+    await ad_account_config.set(ad_cfg.model_copy(update={
+        "users_ous": ["OU=Users,DC=x,DC=y"],
+        "eligible_groups": [],
+    }))
+    
+    req = await submit_step(
+        req.id, admin.id, "complete",
+        data={
+            "first_name": "Marie", "last_name": "Curie",
+            "sam_account": "mcurie", "ou_dn": "OU=Users,DC=x,DC=y",
+            "mail": "marie.curie@example.com", "home_directory": "/home/mcurie",
+            "groups": [],
+        },
+        actor_user=admin,
+        ad_creds=("admin", "password"),
+    )
     assert req.status == "completed"
 
     async with get_session() as session:

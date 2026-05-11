@@ -104,13 +104,14 @@ async def test_get_actionable_count_excludes_completed_requests():
     await _setup_roles()
     staff = await _create_user(email="staff4@test.com", role="staff")
     director = await _create_user(email="director4@test.com", role="director")
+    
     req = await create_request(
         workflow_type="vpn_access",
         created_by=staff.id,
         data={"target_name": "A", "target_email": "a@test.com"},
     )
     req = await submit_step(req.id, staff.id, "submit", data={}, actor_user=staff)
-    await submit_step(req.id, director.id, "approve", data={}, actor_user=director)
+    await submit_step(req.id, director.id, "approve", data={}, actor_user=director, ad_creds=("admin", "pass"))
 
     count = await get_actionable_count(director)
 

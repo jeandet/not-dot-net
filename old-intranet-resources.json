@@ -1,0 +1,222 @@
+{
+  "version": 1,
+  "exported_at": "2026-04-24T13:33:50.313657+00:00",
+  "resources": [
+    {
+      "name": "pclib-1",
+      "resource_type": "desktop",
+      "description": "OptiPlex 7060 — Intel Core i7-8700  @ 3.20GHz, 16 Go, Intel UHD Graphics 630, SSD 512 Go | WDC 1 To",
+      "location": "Jussieu",
+      "specs": null,
+      "active": true
+    },
+    {
+      "name": "pclib-2",
+      "resource_type": "desktop",
+      "description": "OptiPlex 7060 — Intel Core i7-8700  @ 3.20GHz, 16 Go, Intel UHD Graphics 630, SSD 512 Go | WDC 1 To",
+      "location": "Jussieu",
+      "specs": null,
+      "active": true
+    },
+    {
+      "name": "pclib-3",
+      "resource_type": "desktop",
+      "description": "OptiPlex 7060 — Intel Core i7-8700  @ 3.20GHz, 16 Go, Intel UHD Graphics 630, SSD 512 Go | WDC 1 To",
+      "location": "Jussieu",
+      "specs": null,
+      "active": true
+    },
+    {
+      "name": "pclib-4",
+      "resource_type": "desktop",
+      "description": "OptiPlex 7060 — Intel Core i7-8700  @ 3.20GHz, 16 Go, Intel UHD Graphics 630, SSD 512 Go | WDC 1 To",
+      "location": "Jussieu",
+      "specs": null,
+      "active": true
+    },
+    {
+      "name": "p-pclib-1",
+      "resource_type": "laptop",
+      "description": "Dell Precision 3571 — 12th Gen Intel Core i7-12700H, 16 Go, NVIDIA T600 Laptop GPU, 1 To",
+      "location": "Jussieu",
+      "specs": null,
+      "active": true
+    },
+    {
+      "name": "p-pclib-2",
+      "resource_type": "laptop",
+      "description": "Dell Precision 3571 — 12th Gen Intel Core i7-12700H, 16 Go, NVIDIA T600 Laptop GPU",
+      "location": "Jussieu",
+      "specs": null,
+      "active": true
+    },
+    {
+      "name": "pc-pclib-3",
+      "resource_type": "laptop",
+      "description": "HP EliteBook 845 G10 — AMD Ryzen 5 PRO 7545U, 16 GO, Radeon 740M Graphics",
+      "location": "Jussieu",
+      "specs": null,
+      "active": true
+    },
+    {
+      "name": "faust-10",
+      "resource_type": "desktop",
+      "description": "Dell Precision 3630 — Intel Xeon E-2174G  @ 3.80GHz, 32 Go, NVIDIA Quadro P2000, SSD 1 To | 2 To",
+      "location": "Palaiseau",
+      "specs": null,
+      "active": true
+    },
+    {
+      "name": "faust-11",
+      "resource_type": "desktop",
+      "description": "Dell Precision 3630 — Intel Xeon E-2174G  @ 3.80GHz v3 @ 3.40GHz, 32 Go, NVIDIA Quadro P2000",
+      "location": "Palaiseau",
+      "specs": null,
+      "active": true
+    },
+    {
+      "name": "faust-12",
+      "resource_type": "desktop",
+      "description": "Dell Precision 3630 — Intel Xeon E-2174G  @ 3.80GHz, 32 Go, NVIDIA Quadro P2000",
+      "location": "Palaiseau",
+      "specs": null,
+      "active": true
+    },
+    {
+      "name": "faust-3",
+      "resource_type": "desktop",
+      "description": "Dell Precision 3630 — Intel Xeon E-2174G CPU @ 3.80GHz v3 @ 3.40GHz, 32 Go, NVIDIA Quadro P2000, SSD 1 To | 2 To",
+      "location": "Palaiseau",
+      "specs": null,
+      "active": true
+    },
+    {
+      "name": "faust-4",
+      "resource_type": "desktop",
+      "description": "Dell Precision 3630 — Intel Xeon E-2174G  @ 3.80GHz, 32 Go, NVIDIA Quadro P2000",
+      "location": "Palaiseau",
+      "specs": null,
+      "active": true
+    },
+    {
+      "name": "faust-5",
+      "resource_type": "desktop",
+      "description": "Dell Precision 3630 — Intel Xeon E-2174G CPU @ 3.80GHz, 32 Go, NVIDIA Quadro P2000, SSD 1 To | 2 To",
+      "location": "Palaiseau",
+      "specs": null,
+      "active": true
+    },
+    {
+      "name": "faust-6",
+      "resource_type": "desktop",
+      "description": "Dell Precision T1700 — Intel Xeon E3-1240 v3 @ 3.40GHz, 32 Go, NVIDIA Quadro K2000, SSD 256 Go | TOSHIBA 2 To",
+      "location": "Palaiseau",
+      "specs": null,
+      "active": true
+    },
+    {
+      "name": "faust-7",
+      "resource_type": "desktop",
+      "description": "Dell Precision 3630 — Intel Xeon E-2174G CPU @ 3.80GHzz, 32 Go, NVIDIA Quadro P2000, SSD 1 To | 2 To",
+      "location": "Palaiseau",
+      "specs": null,
+      "active": true
+    },
+    {
+      "name": "faust-8",
+      "resource_type": "desktop",
+      "description": "Dell Precision 3630 — Intel Xeon E-2174G  @ 3.80GHz v3 @ 3.40GHz, 32 Go, NVIDIA Quadro P2000, SSD 256 Go | TOSHIBA 2 To",
+      "location": "Palaiseau",
+      "specs": null,
+      "active": true
+    },
+    {
+      "name": "faust-9",
+      "resource_type": "desktop",
+      "description": "Dell Precision 3630 — Intel Xeon E-2174G  @ 3.80GHz, 32 Go, NVIDIA Quadro P2000, SSD 1 To | 2 To",
+      "location": "Palaiseau",
+      "specs": null,
+      "active": true
+    },
+    {
+      "name": "mephisto-1",
+      "resource_type": "laptop",
+      "description": "HP EliteBook 845 G10 — AMD Ryzen 5 PRO 7540U, 16 Go, AMD Radeon 740M Graphics, SSD 512 Go",
+      "location": "Palaiseau",
+      "specs": null,
+      "active": true
+    },
+    {
+      "name": "mephisto-10",
+      "resource_type": "laptop",
+      "description": "HP EliteBook 645 14 inch G11 — AMD Ryzen 5 Pro 7535U with Radeon Graphics, 32 Go, 500 Go",
+      "location": "Palaiseau",
+      "specs": null,
+      "active": true
+    },
+    {
+      "name": "mephisto-2",
+      "resource_type": "laptop",
+      "description": "HP EliteBook 645 14 inch G11 — AMD Ryzen 5 Pro 7535U with Radeon Graphics, 32 Go, AMD Radeon(TM) Graphics",
+      "location": "Palaiseau",
+      "specs": null,
+      "active": true
+    },
+    {
+      "name": "mephisto-3",
+      "resource_type": "laptop",
+      "description": "HP EliteBook 845 G10 — AMD Ryzen 5 PRO 7540U, 16 Go, AMD Radeon 740M Graphics, SSD 512 Go",
+      "location": "Palaiseau",
+      "specs": null,
+      "active": true
+    },
+    {
+      "name": "mephisto-4",
+      "resource_type": "laptop",
+      "description": "HP EliteBook 845 14 inch G10 — AMD Ryzen 5 PRO 7540U, 16 Go, AMD Radeon 740M Graphics, SSD 512 Go",
+      "location": "Palaiseau",
+      "specs": null,
+      "active": true
+    },
+    {
+      "name": "mephisto-5",
+      "resource_type": "laptop",
+      "description": "Latitude 5420 — 11th Gen Intl Core i5-1135G7 @ 2.40GHz, 16 Go, NVMe CL1-3D256-Q11 NVMe SSSTC 256GB",
+      "location": "Palaiseau",
+      "specs": null,
+      "active": true
+    },
+    {
+      "name": "mephisto-6",
+      "resource_type": "laptop",
+      "description": "Latitude 5420 — 11th Gen Intel Core i5-1135G7 @ 2.40GHz, 16 Go",
+      "location": "Palaiseau",
+      "specs": null,
+      "active": true
+    },
+    {
+      "name": "mephisto-7",
+      "resource_type": "laptop",
+      "description": "HP EliteBook 645 14 inch G11 — AMD Ryzen 5 Pro 7535U with Radeon Graphics, 32 Go",
+      "location": "Palaiseau",
+      "specs": null,
+      "active": true
+    },
+    {
+      "name": "mephisto-8",
+      "resource_type": "laptop",
+      "description": "HP EliteBook 845 G10 — AMD Ryzen 5 PRO 7545U, 16 GO, Radeon 740M Graphics",
+      "location": "Palaiseau",
+      "specs": null,
+      "active": true
+    },
+    {
+      "name": "mephisto-9",
+      "resource_type": "laptop",
+      "description": "HP EliteBook 845 G10 — AMD Ryzen 5 PRO 7545U, 16 GO, Radeon 740M Graphics",
+      "location": "Palaiseau",
+      "specs": null,
+      "active": true
+    }
+  ]
+}

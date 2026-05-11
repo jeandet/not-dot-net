@@ -122,6 +122,7 @@ from not_dot_net.config import (
     WorkflowStepConfig,
     FieldConfig,
     NotificationRuleConfig,
+    StepEffectConfig,
 )
 
 
@@ -187,6 +188,13 @@ class WorkflowsConfig(BaseModel):
                     assignee_role="director",
                     assignee_permission="approve_workflows",
                     actions=["approve", "reject"],
+                    effects=[
+                        StepEffectConfig(
+                            on_action="approve",
+                            kind="ad_add_to_groups",
+                            params={"groups": []},  # admin fills in via the editor
+                        ),
+                    ],
                 ),
             ],
             notifications=[
@@ -242,11 +250,9 @@ class WorkflowsConfig(BaseModel):
                 ),
                 WorkflowStepConfig(
                     key="it_account_creation",
-                    type="form",
+                    type="ad_account_creation",
                     assignee_permission="manage_users",
-                    fields=[
-                        FieldConfig(name="notes", type="textarea", label="notes"),
-                    ],
+                    fields=[],
                     actions=["complete"],
                 ),
             ],

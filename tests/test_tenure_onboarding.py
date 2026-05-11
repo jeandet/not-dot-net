@@ -197,11 +197,26 @@ async def test_create_tenure_from_onboarding_invalid_start_date_falls_back_to_to
     assert tenures[0].start_date == date.today()
 
 
-async def test_onboarding_completion_creates_tenure_for_target_email_user():
+async def test_onboarding_completion_creates_tenure_for_target_email_user(monkeypatch):
     await _setup_roles()
     initiator = await _create_user("initiator@test.com", role="staff")
     admin = await _create_user("admin@test.com", role="admin")
     target = await _create_user("target-newcomer@test.com", role="staff")
+
+    # Monkeypatch AD primitives to bypass LDAP
+    import not_dot_net.backend.workflow_service as ws
+    monkeypatch.setattr(ws, "ldap_user_exists_by_sam", lambda *a, **kw: False)
+    monkeypatch.setattr(ws, "ldap_create_user",
+                        lambda new_user, bu, bp, cfg, connect=None: f"CN={new_user.display_name},OU=Users,DC=x,DC=y")
+    monkeypatch.setattr(ws, "ldap_add_to_groups", lambda *a, **kw: {})
+
+    # Set up AD config
+    from not_dot_net.backend.ad_account_config import ad_account_config
+    ad_cfg = await ad_account_config.get()
+    await ad_account_config.set(ad_cfg.model_copy(update={
+        "users_ous": ["OU=Users,DC=x,DC=y"],
+        "eligible_groups": [],
+    }))
 
     req = await create_request(
         workflow_type="onboarding",
@@ -223,7 +238,17 @@ async def test_onboarding_completion_creates_tenure_for_target_email_user():
         actor_token=req.token,
     )
     req = await submit_step(req.id, admin.id, "approve", data={}, actor_user=admin)
-    req = await submit_step(req.id, admin.id, "complete", data={}, actor_user=admin)
+    req = await submit_step(
+        req.id, admin.id, "complete",
+        data={
+            "first_name": "Marie", "last_name": "Curie",
+            "sam_account": "mcurie", "ou_dn": "OU=Users,DC=x,DC=y",
+            "mail": "marie.curie@example.com", "home_directory": "/home/mcurie",
+            "groups": [],
+        },
+        actor_user=admin,
+        ad_creds=("admin", "password"),
+    )
 
     assert req.status == "completed"
     tenures = await list_tenures(target.id)
@@ -233,17 +258,32 @@ async def test_onboarding_completion_creates_tenure_for_target_email_user():
     assert tenures[0].start_date == date(2026, 9, 1)
 
 
-async def test_onboarding_completion_uses_returning_user_id_for_tenure_target():
+async def test_onboarding_completion_uses_returning_user_id_for_tenure_target(monkeypatch):
     await _setup_roles()
     initiator = await _create_user("initiator-returning@test.com", role="staff")
     admin = await _create_user("admin-returning@test.com", role="admin")
     returning_user = await _create_user("returning@test.com", role="staff")
 
+    # Monkeypatch AD primitives to bypass LDAP
+    import not_dot_net.backend.workflow_service as ws
+    monkeypatch.setattr(ws, "ldap_user_exists_by_sam", lambda *a, **kw: False)
+    monkeypatch.setattr(ws, "ldap_create_user",
+                        lambda new_user, bu, bp, cfg, connect=None: f"CN={new_user.display_name},OU=Users,DC=x,DC=y")
+    monkeypatch.setattr(ws, "ldap_add_to_groups", lambda *a, **kw: {})
+
+    # Set up AD config
+    from not_dot_net.backend.ad_account_config import ad_account_config
+    ad_cfg = await ad_account_config.get()
+    await ad_account_config.set(ad_cfg.model_copy(update={
+        "users_ous": ["OU=Users,DC=x,DC=y"],
+        "eligible_groups": [],
+    }))
+
     req = await create_request(
         workflow_type="onboarding",
         created_by=initiator.id,
         data={
-            "contact_email": "external-contact@test.com",
+            "contact_email": returning_user.email,  # Use the returning user's email
             "returning_user_id": str(returning_user.id),
             "status": "CDD",
             "employer": "Polytechnique",
@@ -260,7 +300,17 @@ async def test_onboarding_completion_uses_returning_user_id_for_tenure_target():
         actor_token=req.token,
     )
     req = await submit_step(req.id, admin.id, "approve", data={}, actor_user=admin)
-    req = await submit_step(req.id, admin.id, "complete", data={}, actor_user=admin)
+    req = await submit_step(
+        req.id, admin.id, "complete",
+        data={
+            "first_name": "Ada", "last_name": "Lovelace",
+            "sam_account": "alovelace", "ou_dn": "OU=Users,DC=x,DC=y",
+            "mail": "ada.lovelace@example.com", "home_directory": "/home/alovelace",
+            "groups": [],
+        },
+        actor_user=admin,
+        ad_creds=("admin", "password"),
+    )
 
     assert req.status == "completed"
     tenures = await list_tenures(returning_user.id)

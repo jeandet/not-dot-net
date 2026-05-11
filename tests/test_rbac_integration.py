@@ -218,6 +218,6 @@ async def test_director_can_approve_workflow_step():
         actor=requester,
     )
     req = await submit_step(req.id, requester.id, "submit", data={}, actor_user=requester)
-    req = await submit_step(req.id, director.id, "approve", data={}, actor_user=director)
+    req = await submit_step(req.id, director.id, "approve", data={}, actor_user=director, ad_creds=("admin", "pass"))
 
     assert req.status == "completed"

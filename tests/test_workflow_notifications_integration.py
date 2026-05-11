@@ -66,7 +66,7 @@ async def test_approve_fires_notifications():
     # Approve (check notifications fire)
     with patch("not_dot_net.backend.workflow_service.notify", new_callable=AsyncMock) as mock_notify:
         mock_notify.return_value = []
-        await submit_step(req.id, director.id, "approve", data={}, actor_user=director)
+        await submit_step(req.id, director.id, "approve", data={}, actor_user=director, ad_creds=("admin", "pass"))
         mock_notify.assert_called_once()
 
 
@@ -149,7 +149,7 @@ async def test_onboarding_request_corrections_sends_fresh_token_link_email():
     assert "visit the link you received previously" not in body
 
 
-async def test_onboarding_complete_notification_does_not_include_token_link():
+async def test_onboarding_complete_notification_does_not_include_token_link(monkeypatch):
     await _setup_roles()
     await org_config.set(OrgConfig(base_url="https://intranet.example.test/"))
     cfg = await roles_config.get()
@@ -158,6 +158,24 @@ async def test_onboarding_complete_notification_does_not_include_token_link():
     await roles_config.set(cfg)
     staff = await _create_user(email="staff-complete@test.com", role="staff")
     admin = await _create_user(email="admin-complete@test.com", role="admin")
+
+    # Monkeypatch AD primitives to bypass LDAP
+    import not_dot_net.backend.workflow_service as ws
+    monkeypatch.setattr(ws, "ldap_user_exists_by_sam", lambda *a, **kw: False)
+    monkeypatch.setattr(ws, "ldap_create_user",
+                        lambda new_user, bu, bp, cfg, connect=None: f"CN={new_user.display_name},OU=Users,DC=x,DC=y")
+    monkeypatch.setattr(ws, "ldap_add_to_groups", lambda *a, **kw: {})
+
+    # Set up AD config
+    from not_dot_net.backend.ad_account_config import ad_account_config
+    ad_cfg = await ad_account_config.get()
+    await ad_account_config.set(ad_cfg.model_copy(update={
+        "users_ous": ["OU=Users,DC=x,DC=y"],
+        "eligible_groups": [],
+    }))
+
+    # Create target user for ad_account_creation step
+    newcomer = await _create_user(email="newcomer-complete@test.com", role="staff")
 
     req = await create_request(
         workflow_type="onboarding",
@@ -183,7 +201,17 @@ async def test_onboarding_complete_notification_does_not_include_token_link():
         sent_emails.append((to, subject, body_html))
 
     with patch("not_dot_net.backend.mail.send_mail", side_effect=fake_send_mail):
-        req = await submit_step(req.id, admin.id, "complete", data={"notes": "created"}, actor_user=admin)
+        req = await submit_step(
+            req.id, admin.id, "complete",
+            data={
+                "first_name": "Marie", "last_name": "Curie",
+                "sam_account": "mcurie", "ou_dn": "OU=Users,DC=x,DC=y",
+                "mail": "marie.curie@example.com", "home_directory": "/home/mcurie",
+                "groups": [],
+            },
+            actor_user=admin,
+            ad_creds=("admin", "password"),
+        )
 
     assert req.status == "completed"
     assert sent_emails

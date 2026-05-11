@@ -15,6 +15,17 @@ def _enable_sqlite_foreign_keys(dbapi_connection, _connection_record):
     cursor.close()
 
 
+@pytest.fixture()
+async def mock_ad_effects(monkeypatch):
+    """Monkeypatch AD effect handlers to avoid requiring real LDAP credentials in tests."""
+    from not_dot_net.backend.workflow_effects import EFFECT_REGISTRY, EffectResult
+    
+    async def fake_run(request, step, action, params, ad_creds, actor):
+        return EffectResult(kind="ad_add_to_groups", succeeded=True)
+    
+    monkeypatch.setattr(EFFECT_REGISTRY["ad_add_to_groups"], "run", fake_run)
+
+
 @pytest.fixture(autouse=True)
 async def setup_db():
     """Set up an in-memory SQLite DB and dev secrets for each test."""
