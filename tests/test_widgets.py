@@ -59,6 +59,23 @@ async def test_keyed_chip_editor_add_remove_key(user: User):
     assert captured["w"].value == {"b": ["2"]}
 
 
+async def test_keyed_chip_editor_supports_tooltip(user: User):
+    """admin_settings._render_form calls widget.tooltip(hint) for any field
+    with a Pydantic description — KeyedChipEditor must implement it or fields
+    typed dict[str, list[str]] with a description crash the settings page.
+    """
+    captured = {}
+
+    @ui.page("/_kt")
+    def _page():
+        w = keyed_chip_editor({})
+        w.tooltip("hint text")
+        captured["w"] = w
+
+    await user.open("/_kt")
+    assert captured["w"] is not None
+
+
 async def test_keyed_chip_editor_nested_change_propagates(user: User):
     captured = {}
 

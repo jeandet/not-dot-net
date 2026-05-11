@@ -74,6 +74,10 @@ class KeyedChipEditor:
         new_key = f"key_{len(self._rows) + 1}"
         self.add_key(new_key, [])
 
+    def tooltip(self, text: str) -> "KeyedChipEditor":
+        self._container.tooltip(text)
+        return self
+
 
 def keyed_chip_editor(value: dict[str, list[str]], *, key_label: str = "Key") -> KeyedChipEditor:
     return KeyedChipEditor(value, key_label=key_label)
