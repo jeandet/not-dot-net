@@ -9,7 +9,12 @@ from fastapi.security import OAuth2PasswordRequestForm
 from nicegui import app, ui
 from sqlalchemy import func, select
 
-from not_dot_net.backend.audit import log_audit, request_ip, request_user_agent
+from not_dot_net.backend.audit import (
+    log_audit,
+    log_request_network_debug,
+    request_ip,
+    request_user_agent,
+)
 from not_dot_net.backend import security_alerts
 from not_dot_net.backend.db import User, session_scope
 from not_dot_net.backend.users import get_user_manager, cookie_transport, get_jwt_strategy, current_active_user_optional
@@ -68,6 +73,7 @@ async def handle_login(
 
 
 async def _audit_failed_superuser_login(username: str, request: Request) -> None:
+    log_request_network_debug(request, context="login_failed")
     email = username.strip().lower()
     if not email:
         return

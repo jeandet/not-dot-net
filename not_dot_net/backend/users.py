@@ -15,7 +15,12 @@ from fastapi_users.authentication import (
 )
 from fastapi_users.db import SQLAlchemyUserDatabase
 
-from not_dot_net.backend.audit import log_audit, request_ip, request_user_agent
+from not_dot_net.backend.audit import (
+    log_audit,
+    log_request_network_debug,
+    request_ip,
+    request_user_agent,
+)
 from not_dot_net.backend import security_alerts
 from not_dot_net.backend.db import User, get_user_db
 from not_dot_net.backend.secrets import AppSecrets
@@ -58,6 +63,7 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         logger.info("User %s registered", user.id)
 
     async def on_after_login(self, user: User, request: Request | None = None, response=None):
+        log_request_network_debug(request, context="login_success")
         if not user.is_superuser:
             await log_audit("auth", "login", actor_id=user.id, actor_email=user.email)
             return
