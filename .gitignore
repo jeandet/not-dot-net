@@ -127,3 +127,6 @@ old-intranet-pages/
 old-intranet-pages.json
 old-intranet-resources.json
 .serena/
+
+# Generated code review artifacts
+CODE_REVIEW.md
