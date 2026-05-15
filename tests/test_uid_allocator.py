@@ -151,6 +151,50 @@ async def test_seed_from_ad_is_idempotent(monkeypatch):
     assert second.seeded == 0 and second.skipped == 2
 
 
+class _FakePagedConn:
+    """Fake ldap3 connection that hands out one page of entries per search() call."""
+
+    PAGING_OID = "1.2.840.113556.1.4.319"
+
+    def __init__(self, pages):
+        self._pages = pages
+        self._call = 0
+        self.entries: list = []
+        self.result: dict = {"controls": {}}
+        self.bound = True
+
+    def search(self, *args, **kwargs):
+        self.entries = self._pages[self._call]
+        more = self._call + 1 < len(self._pages)
+        cookie = b"next-page-cookie" if more else b""
+        self.result = {"controls": {self.PAGING_OID: {"value": {"cookie": cookie}}}}
+        self._call += 1
+        return True
+
+    def unbind(self):
+        self.bound = False
+
+
+@pytest.mark.asyncio
+async def test_search_ad_uids_walks_all_pages(monkeypatch):
+    """_search_ad_uids must follow the paging cookie, not stop after one page."""
+    from not_dot_net.backend import uid_allocator
+    from not_dot_net.backend.auth import ldap as ldap_module
+
+    page1 = [_FakeEntry(40000 + i, f"u{i}") for i in range(500)]
+    page2 = [_FakeEntry(40500 + i, f"v{i}") for i in range(3)]
+    fake = _FakePagedConn([page1, page2])
+
+    monkeypatch.setattr(ldap_module, "_ldap_bind", lambda *a, **kw: fake)
+    monkeypatch.setattr(ldap_module, "get_ldap_connect", lambda: (lambda *a, **kw: fake))
+
+    class _DummyCfg:
+        base_dn = "dc=example,dc=com"
+
+    entries = uid_allocator._search_ad_uids(_DummyCfg(), "admin", "pw")
+    assert len(entries) == 503
+
+
 @pytest.mark.asyncio
 async def test_list_allocations_returns_views_desc_by_acquired():
     from not_dot_net.backend.uid_allocator import list_allocations

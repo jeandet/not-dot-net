@@ -94,8 +94,16 @@ class SeedResult:
     skipped: int
 
 
+_PAGED_RESULTS_OID = "1.2.840.113556.1.4.319"
+
+
 def _search_ad_uids(ldap_cfg, bind_username: str, bind_password: str):
-    """Bind and paged-search AD for entries with uidNumber. Returns list of ldap3 entries.
+    """Bind and paged-search AD for entries with uidNumber. Returns all entries.
+
+    `Connection.search(paged_size=N)` only returns the first page; subsequent
+    pages must be fetched by feeding back the paging cookie. Without this loop
+    we silently lose every UID beyond the first 500 — guaranteeing future
+    collisions once the directory crosses that size.
 
     Wrapped in its own function so tests can monkeypatch it.
     """
@@ -104,16 +112,27 @@ def _search_ad_uids(ldap_cfg, bind_username: str, bind_password: str):
 
     conn = _ldap_bind(bind_username, bind_password, ldap_cfg, get_ldap_connect())
     try:
-        ok = conn.search(
-            search_base=ldap_cfg.base_dn,
-            search_filter="(&(objectClass=user)(uidNumber=*))",
-            search_scope=SUBTREE,
-            attributes=["uidNumber", "sAMAccountName"],
-            paged_size=500,
-        )
-        if not ok:
-            return []
-        return list(conn.entries)
+        all_entries: list = []
+        cookie: bytes | None = None
+        while True:
+            ok = conn.search(
+                search_base=ldap_cfg.base_dn,
+                search_filter="(&(objectClass=user)(uidNumber=*))",
+                search_scope=SUBTREE,
+                attributes=["uidNumber", "sAMAccountName"],
+                paged_size=500,
+                paged_cookie=cookie,
+            )
+            if not ok:
+                break
+            all_entries.extend(conn.entries)
+            try:
+                cookie = conn.result["controls"][_PAGED_RESULTS_OID]["value"]["cookie"]
+            except (KeyError, TypeError):
+                cookie = None
+            if not cookie:
+                break
+        return all_entries
     finally:
         conn.unbind()
 

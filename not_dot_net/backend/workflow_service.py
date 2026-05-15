@@ -495,8 +495,18 @@ async def submit_step(
         else:
             raise PermissionError("No actor provided")
 
-        next_step, new_status = compute_next_step(wf, req.current_step, action)
         step_cfg = get_current_step_config(req, wf)
+        if step_cfg is None:
+            raise ValueError(f"Unknown step '{req.current_step}' in workflow")
+        allowed = set(step_cfg.actions)
+        if step_cfg.partial_save:
+            allowed.add("save_draft")
+        if action not in allowed:
+            raise ValueError(
+                f"Action '{action}' is not allowed on step '{req.current_step}'"
+            )
+
+        next_step, new_status = compute_next_step(wf, req.current_step, action)
 
         # Handle ad_account_creation step type before the standard transition
         if getattr(step_cfg, "type", None) == "ad_account_creation" and action == "complete":
@@ -686,6 +696,12 @@ async def save_draft(
                 raise PermissionError("User cannot act on this step")
         else:
             raise PermissionError("No actor provided")
+
+        step_cfg = get_current_step_config(req, wf)
+        if step_cfg is None or not step_cfg.partial_save:
+            raise PermissionError(
+                f"Step '{req.current_step}' does not allow partial_save"
+            )
 
         merged = dict(req.data)
         merged.update(data)

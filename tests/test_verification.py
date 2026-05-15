@@ -146,3 +146,17 @@ async def test_failed_attempts_do_not_allow_regeneration_before_expiry():
 
     assert await generate_verification_code(req.id) is None
     assert await verify_code(req.id, code) is True
+
+
+@pytest.mark.asyncio
+async def test_exhausted_attempts_do_not_allow_regeneration_before_expiry():
+    """After MAX_ATTEMPTS wrong tries, generation must stay locked until the
+    code expires — otherwise an attacker repeats generate→×5 forever."""
+    req = await _create_test_request()
+    code = await generate_verification_code(req.id)
+    assert code is not None
+
+    for _ in range(MAX_ATTEMPTS):
+        await verify_code(req.id, "000000")
+
+    assert await generate_verification_code(req.id) is None

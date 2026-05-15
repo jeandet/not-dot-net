@@ -29,10 +29,14 @@ async def generate_verification_code(request_id: uuid.UUID) -> str | None:
         if req is None:
             raise ValueError(f"Request {request_id} not found")
 
-        if req.verification_code_hash and req.code_expires_at and req.code_attempts < MAX_ATTEMPTS:
+        if req.verification_code_hash and req.code_expires_at:
             expires = req.code_expires_at
             if expires.tzinfo is None:
                 expires = expires.replace(tzinfo=timezone.utc)
+            # Refuse regeneration while the existing code is still within its
+            # expiry window — even after attempts are exhausted. Without this,
+            # an attacker can loop generate→try×5→generate forever and
+            # brute-force the 10⁶-code space.
             if datetime.now(timezone.utc) < expires:
                 return None
 

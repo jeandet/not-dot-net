@@ -220,6 +220,35 @@ async def test_authorization_check_blocks_wrong_user():
         await submit_step(req.id, member.id, "submit", data={}, actor_user=member)
 
 
+async def test_save_draft_rejects_step_without_partial_save():
+    """save_draft must refuse to write data on steps where partial_save is False."""
+    await _setup_roles()
+    staff = await _create_user(email="staff@test.com", role="staff")
+    director = await _create_user(email="director@test.com", role="director")
+    req = await create_request(
+        workflow_type="vpn_access",
+        created_by=staff.id,
+        data={"target_name": "Alice", "target_email": "alice@test.com"},
+    )
+    req = await submit_step(req.id, staff.id, "submit", data={}, actor_user=staff)
+    assert req.current_step == "approval"
+    with pytest.raises(PermissionError, match="partial_save"):
+        await save_draft(req.id, data={"target_name": "Hacker"}, actor_user=director)
+
+
+async def test_submit_step_rejects_unknown_action():
+    """submit_step must refuse actions that are not in step.actions."""
+    await _setup_roles()
+    staff = await _create_user(email="staff@test.com", role="staff")
+    req = await create_request(
+        workflow_type="vpn_access",
+        created_by=staff.id,
+        data={"target_name": "Alice", "target_email": "alice@test.com"},
+    )
+    with pytest.raises(ValueError, match="not allowed"):
+        await submit_step(req.id, staff.id, "evil_action", data={}, actor_user=staff)
+
+
 async def test_list_actionable_returns_only_in_progress():
     """Completed requests should not appear in actionable list."""
     await _setup_roles()
