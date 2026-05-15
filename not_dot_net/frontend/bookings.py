@@ -345,7 +345,7 @@ async def _render_resource_detail(outer_container, res, user, is_admin, book_ran
     ui.label(range_label).classes("text-sm text-grey-8")
     with ui.row().classes("items-center gap-2"):
         ui.label(t("os")).classes("text-sm")
-        os_select = ui.toggle(os_choices, value=os_choices[0]).props("dense")
+        os_select = ui.toggle(os_choices, value=None).props("dense")
 
     chip_state = {"selected": set()}
     sw_container = ui.row().classes("flex-wrap gap-1")
@@ -353,6 +353,8 @@ async def _render_resource_detail(outer_container, res, user, is_admin, book_ran
     def _rebuild_chips(os_name):
         sw_container.clear()
         chip_state["selected"] = set()
+        if not os_name:
+            return
         tags = all_software.get(os_name, [])
         with sw_container:
             for tag in tags:
@@ -371,8 +373,6 @@ async def _render_resource_detail(outer_container, res, user, is_admin, book_ran
 
                 chip.on_click(toggle)
 
-    _rebuild_chips(os_choices[0])
-
     def on_os_change(e):
         _rebuild_chips(e.value)
 
@@ -381,14 +381,13 @@ async def _render_resource_detail(outer_container, res, user, is_admin, book_ran
     with ui.row().classes("items-center gap-2"):
         note_input = ui.input(t("note")).props("outlined dense")
 
-        async def do_book():
+        async def _submit_booking(selected_sw):
             try:
                 s = date.fromisoformat(default_range["from"])
                 e = date.fromisoformat(default_range["to"]) + timedelta(days=1)
             except (ValueError, KeyError):
                 ui.notify("Invalid date range", color="negative")
                 return
-            selected_sw = list(chip_state["selected"])
             try:
                 await create_booking(
                     res.id, user.id, s, e,
@@ -402,6 +401,26 @@ async def _render_resource_detail(outer_container, res, user, is_admin, book_ran
                 return
             ui.notify(t("booking_created"), color="positive")
             await _render_bookings(outer_container, user)
+
+        async def do_book():
+            if not os_select.value:
+                ui.notify(t("select_os"), color="warning")
+                return
+            selected_sw = list(chip_state["selected"])
+            if not selected_sw:
+                with ui.dialog() as confirm_dialog, ui.card():
+                    ui.label(t("no_software_confirm"))
+
+                    async def confirm():
+                        confirm_dialog.close()
+                        await _submit_booking(selected_sw)
+
+                    with ui.row():
+                        ui.button(t("cancel"), on_click=confirm_dialog.close).props("flat")
+                        ui.button(t("book_anyway"), on_click=confirm).props("color=primary")
+                confirm_dialog.open()
+                return
+            await _submit_booking(selected_sw)
 
         ui.button(t("book"), on_click=do_book).props("color=primary")
 
