@@ -829,8 +829,20 @@ SUPPORTED_LOCALES = ("en", "fr")
 DEFAULT_LOCALE = "en"
 
 
-def get_locale() -> str:
+def locale_from_user(user) -> str | None:
+    locale = getattr(user, "preferred_locale", None)
+    if locale in SUPPORTED_LOCALES:
+        return locale
+    return None
+
+
+def get_locale(user=None) -> str:
     """Get current locale from user storage, or detect from browser."""
+    user_locale = locale_from_user(user)
+    if user_locale:
+        app.storage.user["locale"] = user_locale
+        return user_locale
+
     stored = app.storage.user.get("locale")
     if stored in SUPPORTED_LOCALES:
         return stored

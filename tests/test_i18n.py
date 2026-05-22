@@ -1,6 +1,6 @@
 import string
 
-from not_dot_net.frontend.i18n import TRANSLATIONS, _parse_accept_language, t
+from not_dot_net.frontend.i18n import TRANSLATIONS, _parse_accept_language, locale_from_user, t
 
 SECURITY_MESSAGE_KEYS = {
     "invalid_credentials",
@@ -67,6 +67,20 @@ def test_parse_accept_language_empty():
 
 def test_parse_accept_language_unknown_falls_back():
     assert _parse_accept_language("de-DE,de;q=0.9") == "en"
+
+
+def test_locale_from_user_returns_supported_preference():
+    class User:
+        preferred_locale = "fr"
+
+    assert locale_from_user(User()) == "fr"
+
+
+def test_locale_from_user_ignores_unsupported_preference():
+    class User:
+        preferred_locale = "de"
+
+    assert locale_from_user(User()) is None
 
 
 def test_t_with_placeholder():

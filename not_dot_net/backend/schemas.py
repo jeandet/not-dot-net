@@ -14,6 +14,7 @@ class UserRead(schemas.BaseUser[uuid.UUID]):
     start_date: date | None = None
     end_date: date | None = None
     role: str = ""
+    preferred_locale: str | None = None
 
 
 class UserCreate(schemas.BaseUserCreate):
