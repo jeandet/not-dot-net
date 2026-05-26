@@ -3,6 +3,8 @@
 import json
 import logging
 from enum import Enum
+from types import UnionType
+from typing import Union, get_args, get_origin
 
 from nicegui import ui
 from pydantic import BaseModel, ValidationError
@@ -20,6 +22,10 @@ logger = logging.getLogger(__name__)
 
 def _is_enum(annotation) -> bool:
     return isinstance(annotation, type) and issubclass(annotation, Enum)
+
+
+def _is_optional_int(annotation) -> bool:
+    return get_origin(annotation) in (UnionType, Union) and set(get_args(annotation)) == {int, type(None)}
 
 
 def _is_complex(schema: type[BaseModel]) -> bool:
@@ -97,6 +103,8 @@ async def _render_form(prefix, cfg_section, current, user):
             widget = ui.select(options, label=field_name, value=value).classes("w-full")
         elif annotation is int:
             widget = ui.number(field_name, value=value)
+        elif _is_optional_int(annotation):
+            widget = ui.number(field_name, value=value)
         elif annotation is str:
             widget = ui.input(field_name, value=value).classes("w-full")
         elif annotation == list[str]:
@@ -119,6 +127,8 @@ async def _render_form(prefix, cfg_section, current, user):
                 update[field_name] = widget.value
             elif annotation is int:
                 update[field_name] = int(widget.value)
+            elif _is_optional_int(annotation):
+                update[field_name] = None if widget.value in ("", None) else int(widget.value)
             elif annotation == list[str]:
                 update[field_name] = list(widget.value)
             elif annotation == dict[str, list[str]]:

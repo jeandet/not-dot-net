@@ -11,13 +11,25 @@ async def test_bookings_config_defaults():
     cfg = await bookings_config.get()
     assert "Windows" in cfg.os_choices
     assert "Ubuntu" in cfg.software_tags
+    assert cfg.minimum_lead_days == 7
+    assert cfg.resource_setup_buffer_days == 7
+    assert cfg.reminder_lead_days == 1
 
 
 async def test_bookings_config_set_os_choices():
-    custom = BookingsConfig(os_choices=["CustomOS"], software_tags={})
+    custom = BookingsConfig(
+        os_choices=["CustomOS"],
+        software_tags={},
+        minimum_lead_days=5,
+        resource_setup_buffer_days=4,
+        reminder_lead_days=None,
+    )
     await bookings_config.set(custom)
     cfg = await bookings_config.get()
     assert cfg.os_choices == ["CustomOS"]
+    assert cfg.minimum_lead_days == 5
+    assert cfg.resource_setup_buffer_days == 4
+    assert cfg.reminder_lead_days is None
 
 
 async def test_bookings_config_reset():
@@ -38,6 +50,14 @@ def test_admin_settings_detects_enum_fields():
     assert _is_enum(Mode) is True
     assert _is_enum(str) is False
     assert _is_enum(list[str]) is False
+
+
+def test_admin_settings_detects_optional_int_fields():
+    from not_dot_net.frontend.admin_settings import _is_optional_int
+
+    assert _is_optional_int(int | None) is True
+    assert _is_optional_int(int) is False
+    assert _is_optional_int(str | None) is False
 
 
 def test_admin_settings_dict_str_list_str_is_not_complex():

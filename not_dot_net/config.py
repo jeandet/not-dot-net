@@ -105,6 +105,9 @@ class BookingsConfig(BaseModel):
         "Ubuntu": ["Python", "MATLAB", "IDL", "GCC", "LaTeX", "Docker"],
         "Fedora": ["Python", "MATLAB", "IDL", "GCC", "LaTeX", "Docker", "Toolbox"],
     }
+    minimum_lead_days: int = Field(default=7, ge=0)
+    resource_setup_buffer_days: int = Field(default=7, ge=0)
+    reminder_lead_days: int | None = Field(default=1, ge=0)
 
 
 bookings_config = section("bookings", BookingsConfig, label="Bookings")
