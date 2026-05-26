@@ -6,6 +6,7 @@ from not_dot_net.frontend.bookings import (
     _minimum_booking_start,
     _normalize_booking_range,
     _qdate_option_date,
+    _truncate_booking_owner,
 )
 
 
@@ -49,3 +50,10 @@ def test_normalize_booking_range_falls_back_on_invalid_value():
 
 def test_qdate_option_date_uses_quasar_date_format():
     assert _qdate_option_date(date(2026, 6, 2)) == "2026/06/02"
+
+
+def test_truncate_booking_owner_limits_display_name():
+    assert _truncate_booking_owner("short@test.com") == "short@test.com"
+    assert _truncate_booking_owner("lucas.bazin@lpp.polytechnique.fr") == (
+        "lucas.bazin@lpp.polytech..."
+    )

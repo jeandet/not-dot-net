@@ -4,6 +4,7 @@ import uuid
 from datetime import date, timedelta
 
 from nicegui import ui
+from sqlalchemy import select
 
 from not_dot_net.backend.booking_service import (
     BookingConflictError,
@@ -57,6 +58,10 @@ def _normalize_booking_range(value, today: date | None = None) -> dict[str, str]
 
 def _qdate_option_date(value: date) -> str:
     return value.isoformat().replace("-", "/")
+
+
+def _truncate_booking_owner(name: str, max_chars: int = 24) -> str:
+    return name if len(name) <= max_chars else f"{name[:max_chars]}..."
 
 
 def render(user: User):
@@ -222,18 +227,34 @@ async def _render_resource_list(outer_container, area, resources, user, is_admin
 
     # Build availability map
     availability: dict[uuid.UUID, bool] = {}
+    conflict_bookings = {}
     for res in filtered:
         bookings = await list_bookings_for_resource(
             res.id,
             from_date=range_start - timedelta(days=RESOURCE_SETUP_BUFFER_DAYS),
             to_date=range_end + timedelta(days=RESOURCE_SETUP_BUFFER_DAYS),
         )
-        has_conflict = any(
-            b.start_date < range_end + timedelta(days=RESOURCE_SETUP_BUFFER_DAYS)
-            and b.end_date > range_start - timedelta(days=RESOURCE_SETUP_BUFFER_DAYS)
+        conflicting_booking = next((
+            b
             for b in bookings
-        )
+            if b.start_date < range_end + timedelta(days=RESOURCE_SETUP_BUFFER_DAYS)
+            and b.end_date > range_start - timedelta(days=RESOURCE_SETUP_BUFFER_DAYS)
+        ), None)
+        has_conflict = conflicting_booking is not None
+        if conflicting_booking is not None:
+            conflict_bookings[res.id] = conflicting_booking
         availability[res.id] = not has_conflict
+
+    owner_labels = {}
+    if conflict_bookings:
+        user_ids = {booking.user_id for booking in conflict_bookings.values()}
+        async with session_scope() as session:
+            result = await session.execute(select(User).where(User.id.in_(user_ids)))
+            users_by_id = {u.id: u for u in result.scalars().all()}
+        for resource_id, booking in conflict_bookings.items():
+            owner = users_by_id.get(booking.user_id)
+            owner_name = owner.full_name or owner.email if owner else "?"
+            owner_labels[resource_id] = _truncate_booking_owner(owner_name)
 
     org = await org_config.get()
     sites = org.sites
@@ -267,6 +288,7 @@ async def _render_resource_list(outer_container, area, resources, user, is_admin
                     await _resource_card(
                         outer_container, res, user, is_admin, state,
                         is_available=availability.get(res.id, True),
+                        booked_by=owner_labels.get(res.id),
                         book_range=date_range,
                     )
 
@@ -279,7 +301,7 @@ def _get_resource_for_booking(resource_id, resources):
 
 
 async def _resource_card(outer_container, res, user, is_admin, state,
-                         is_available=True, book_range=None):
+                         is_available=True, booked_by=None, book_range=None):
     with ui.card().classes("cursor-pointer q-py-sm q-px-md") as card:
         with ui.row().classes("items-center justify-between w-full"):
             with ui.column().classes("gap-0"):
@@ -300,7 +322,7 @@ async def _resource_card(outer_container, res, user, is_admin, state,
                     if parts:
                         ui.label(" · ".join(parts)).classes("text-xs text-grey-6")
             ui.badge(
-                t("available") if is_available else t("booked_by"),
+                t("available") if is_available else f"{t('booked_by')} {booked_by or '?'}",
                 color="positive" if is_available else "orange",
             )
 
