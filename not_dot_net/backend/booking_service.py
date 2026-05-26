@@ -13,6 +13,8 @@ from not_dot_net.backend.permissions import check_permission, has_permissions, p
 MANAGE_BOOKINGS = permission("manage_bookings", "Manage bookings", "Create/edit/delete resources and software")
 
 MAX_BOOKING_DAYS = 183  # ~6 months
+MIN_BOOKING_LEAD_DAYS = 7
+RESOURCE_SETUP_BUFFER_DAYS = 7
 
 
 class BookingConflictError(Exception):
@@ -143,6 +145,11 @@ async def create_booking(
         raise BookingValidationError("End date must be after start date")
     if start_date < date.today():
         raise BookingValidationError("Cannot book in the past")
+    earliest_start = date.today() + timedelta(days=MIN_BOOKING_LEAD_DAYS)
+    if start_date < earliest_start:
+        raise BookingValidationError(
+            f"Bookings must start at least {MIN_BOOKING_LEAD_DAYS} days from today"
+        )
     if (end_date - start_date).days > MAX_BOOKING_DAYS:
         raise BookingValidationError(f"Booking cannot exceed {MAX_BOOKING_DAYS} days")
 
@@ -159,12 +166,14 @@ async def create_booking(
             conflicts = await session.execute(
                 select(Booking).where(
                     Booking.resource_id == resource_id,
-                    Booking.start_date < end_date,
-                    Booking.end_date > start_date,
+                    Booking.start_date < end_date + timedelta(days=RESOURCE_SETUP_BUFFER_DAYS),
+                    Booking.end_date > start_date - timedelta(days=RESOURCE_SETUP_BUFFER_DAYS),
                 ).with_for_update()
             )
             if conflicts.scalars().first():
-                raise BookingConflictError("This resource is already booked for the selected period")
+                raise BookingConflictError(
+                    "This resource is already booked or within the 7-day setup buffer"
+                )
 
             booking = Booking(
                 resource_id=resource_id,

@@ -12,6 +12,7 @@ from not_dot_net.backend.permissions import (
 )
 from not_dot_net.backend.roles import RoleDefinition, roles_config
 from not_dot_net.backend.booking_service import (
+    MIN_BOOKING_LEAD_DAYS,
     create_resource,
     delete_resource,
     update_resource,
@@ -26,6 +27,9 @@ import not_dot_net.backend.booking_service  # noqa: F401
 import not_dot_net.backend.workflow_service  # noqa: F401
 import not_dot_net.frontend.audit_log  # noqa: F401
 import not_dot_net.frontend.directory  # noqa: F401
+
+def _valid_booking_start() -> date:
+    return date.today() + timedelta(days=MIN_BOOKING_LEAD_DAYS)
 
 
 async def _create_user(email, role, is_superuser=False):
@@ -116,8 +120,8 @@ async def test_readonly_user_can_create_booking_for_self():
     booking = await create_booking(
         resource_id=resource.id,
         user_id=user.id,
-        start_date=date.today() + timedelta(days=1),
-        end_date=date.today() + timedelta(days=2),
+        start_date=_valid_booking_start(),
+        end_date=_valid_booking_start() + timedelta(days=1),
         actor=user,
     )
 
@@ -135,8 +139,8 @@ async def test_readonly_user_cannot_create_booking_for_another_user():
         await create_booking(
             resource_id=resource.id,
             user_id=other.id,
-            start_date=date.today() + timedelta(days=1),
-            end_date=date.today() + timedelta(days=2),
+            start_date=_valid_booking_start(),
+            end_date=_valid_booking_start() + timedelta(days=1),
             actor=user,
         )
 
@@ -150,8 +154,8 @@ async def test_booker_can_create_booking_for_another_user():
     booking = await create_booking(
         resource_id=resource.id,
         user_id=other.id,
-        start_date=date.today() + timedelta(days=1),
-        end_date=date.today() + timedelta(days=2),
+        start_date=_valid_booking_start(),
+        end_date=_valid_booking_start() + timedelta(days=1),
         actor=manager,
     )
 
@@ -166,8 +170,8 @@ async def test_readonly_user_cannot_cancel_another_users_booking():
     booking = await create_booking(
         resource_id=resource.id,
         user_id=owner.id,
-        start_date=date.today() + timedelta(days=1),
-        end_date=date.today() + timedelta(days=2),
+        start_date=_valid_booking_start(),
+        end_date=_valid_booking_start() + timedelta(days=1),
         actor=owner,
     )
 
@@ -183,8 +187,8 @@ async def test_booker_can_cancel_another_users_booking():
     booking = await create_booking(
         resource_id=resource.id,
         user_id=owner.id,
-        start_date=date.today() + timedelta(days=1),
-        end_date=date.today() + timedelta(days=2),
+        start_date=_valid_booking_start(),
+        end_date=_valid_booking_start() + timedelta(days=1),
         actor=owner,
     )
 
