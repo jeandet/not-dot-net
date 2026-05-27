@@ -1,4 +1,4 @@
-"""Dashboard tab — My Requests + Awaiting My Action."""
+"""Dashboard tab — Awaiting My Action + My Requests."""
 
 from datetime import datetime, timedelta, timezone
 
@@ -20,23 +20,21 @@ from not_dot_net.backend.workflow_engine import get_current_step_config, get_ste
 from not_dot_net.config import dashboard_config
 from not_dot_net.frontend.i18n import t
 from not_dot_net.frontend.workflow_step import (
-    render_status_badge,
     render_step_progress,
-    render_urgency_badge,
 )
 
 
 def render(user: User):
     """Render the dashboard tab content."""
     pages_container = ui.column().classes("w-full")
-    my_requests_container = ui.column().classes("w-full")
     actionable_container = ui.column().classes("w-full")
+    my_requests_container = ui.column().classes("w-full")
 
     async def refresh():
         await _render_pages_section(pages_container)
         if user.is_active:
-            await _render_my_requests(my_requests_container, user)
             await _render_actionable(actionable_container, user)
+            await _render_my_requests(my_requests_container, user)
 
     ui.timer(0, refresh, once=True)
 
@@ -94,6 +92,30 @@ def _since_from_period(period_key: str) -> datetime | None:
     if days is None:
         return None
     return datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=days)
+
+
+def _urgency_card_style(age: int, fresh_days: int, aging_days: int) -> str:
+    if age < fresh_days:
+        color = "76, 175, 80"
+    elif age < aging_days:
+        color = "245, 124, 0"
+    else:
+        color = "211, 47, 47"
+    return (
+        f"background: rgba({color}, 0.16); "
+        f"border: 1px solid rgba({color}, 0.28);"
+    )
+
+
+def _render_actionable_urgency_badge(age: int) -> None:
+    with ui.element("span").classes(
+        "inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium"
+    ).style(
+        "color: #111827; border: 1px solid rgba(17, 24, 39, 0.35); "
+        "border-radius: 999px; background: rgba(255, 255, 255, 0.35);"
+    ):
+        ui.icon("schedule", size="14px").style("color: #111827;")
+        ui.label(f"{age}d").classes("leading-none").style("color: #111827;")
 
 
 
@@ -315,15 +337,22 @@ async def _render_actionable(container, user: User):
 
                 with ui.card().classes(
                     "cursor-pointer q-py-sm q-px-md hover:shadow-lg transition-shadow"
+                ).style(
+                    _urgency_card_style(
+                        age,
+                        dash_cfg.urgency_fresh_days,
+                        dash_cfg.urgency_aging_days,
+                    )
                 ).on("click", lambda _, r=req: ui.navigate.to(f"/workflow/request/{r.id}")):
                     # Header: target + urgency
                     with ui.row().classes("items-center justify-between w-full"):
                         with ui.column().classes("gap-0"):
                             ui.label(target or group_label).classes("font-bold")
                             ui.label(group_label).classes("text-xs text-grey")
-                        render_urgency_badge(
-                            age, dash_cfg.urgency_fresh_days, dash_cfg.urgency_aging_days,
-                        )
+                        with ui.row().classes("items-center gap-1"):
+                            if age >= dash_cfg.urgency_aging_days:
+                                ui.icon("warning", size="xs").classes("text-negative")
+                            _render_actionable_urgency_badge(age)
 
                     # Step progress
                     render_step_progress(req.current_step, req.status, wf.steps)

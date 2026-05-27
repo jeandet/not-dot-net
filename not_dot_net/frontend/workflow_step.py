@@ -444,13 +444,13 @@ def render_step_progress(current_step: str, status: str, steps: list):
         for i, step in enumerate(steps):
             if is_completed or i < current_idx:
                 label = f"✓ {step.key}"
-                cls = "text-[11px] text-grey flex-1"
+                cls = "text-[11px] text-positive font-medium flex-1"
             elif i == current_idx:
                 label = f"● {step.key}"
                 cls = "text-[11px] text-primary font-semibold flex-1"
             else:
                 label = step.key
-                cls = "text-[11px] text-grey-4 flex-1"
+                cls = "text-[11px] text-grey-7 flex-1"
             ui.label(label).classes(cls)
 
 
