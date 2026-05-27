@@ -1,6 +1,5 @@
 from datetime import date, timedelta
 
-from not_dot_net.backend.booking_service import MIN_BOOKING_LEAD_DAYS
 from not_dot_net.frontend.bookings import (
     _default_booking_range,
     _minimum_booking_start,
@@ -13,16 +12,22 @@ from not_dot_net.frontend.bookings import (
 def test_minimum_booking_start_is_seven_days_after_today():
     today = date(2026, 5, 26)
 
-    assert _minimum_booking_start(today) == today + timedelta(days=MIN_BOOKING_LEAD_DAYS)
+    assert _minimum_booking_start(today) == today + timedelta(days=7)
+    assert _minimum_booking_start(today, minimum_lead_days=3) == today + timedelta(days=3)
 
 
 def test_default_booking_range_starts_at_minimum_date():
     today = date(2026, 5, 26)
-    start = today + timedelta(days=MIN_BOOKING_LEAD_DAYS)
+    start = today + timedelta(days=7)
 
     assert _default_booking_range(today) == {
         "from": str(start),
         "to": str(start + timedelta(days=7)),
+    }
+    custom_start = today + timedelta(days=3)
+    assert _default_booking_range(today, minimum_lead_days=3) == {
+        "from": str(custom_start),
+        "to": str(custom_start + timedelta(days=7)),
     }
 
 
@@ -40,6 +45,11 @@ def test_normalize_booking_range_shifts_too_early_range_to_minimum_date():
         {"from": "2026-05-26", "to": "2026-06-02"},
         today,
     ) == {"from": "2026-06-02", "to": "2026-06-09"}
+    assert _normalize_booking_range(
+        {"from": "2026-05-26", "to": "2026-06-02"},
+        today,
+        minimum_lead_days=3,
+    ) == {"from": "2026-05-29", "to": "2026-06-05"}
 
 
 def test_normalize_booking_range_falls_back_on_invalid_value():

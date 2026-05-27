@@ -12,7 +12,6 @@ from not_dot_net.backend.permissions import (
 )
 from not_dot_net.backend.roles import RoleDefinition, roles_config
 from not_dot_net.backend.booking_service import (
-    MIN_BOOKING_LEAD_DAYS,
     create_resource,
     delete_resource,
     update_resource,
@@ -20,6 +19,7 @@ from not_dot_net.backend.booking_service import (
     cancel_booking,
 )
 from not_dot_net.backend.workflow_service import create_request, submit_step
+from not_dot_net.config import BookingsConfig
 
 
 # Force permission registration
@@ -29,7 +29,7 @@ import not_dot_net.frontend.audit_log  # noqa: F401
 import not_dot_net.frontend.directory  # noqa: F401
 
 def _valid_booking_start() -> date:
-    return date.today() + timedelta(days=MIN_BOOKING_LEAD_DAYS)
+    return date.today() + timedelta(days=BookingsConfig().minimum_lead_days)
 
 
 async def _create_user(email, role, is_superuser=False):

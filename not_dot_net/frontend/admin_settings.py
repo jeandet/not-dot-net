@@ -3,8 +3,7 @@
 import json
 import logging
 from enum import Enum
-from types import UnionType
-from typing import Union, get_args, get_origin
+from typing import get_args, get_origin
 
 from nicegui import ui
 from pydantic import BaseModel, ValidationError
@@ -24,8 +23,8 @@ def _is_enum(annotation) -> bool:
     return isinstance(annotation, type) and issubclass(annotation, Enum)
 
 
-def _is_optional_int(annotation) -> bool:
-    return get_origin(annotation) in (UnionType, Union) and set(get_args(annotation)) == {int, type(None)}
+def _is_list_int(annotation) -> bool:
+    return get_origin(annotation) is list and get_args(annotation) == (int,)
 
 
 def _is_complex(schema: type[BaseModel]) -> bool:
@@ -103,10 +102,10 @@ async def _render_form(prefix, cfg_section, current, user):
             widget = ui.select(options, label=field_name, value=value).classes("w-full")
         elif annotation is int:
             widget = ui.number(field_name, value=value)
-        elif _is_optional_int(annotation):
-            widget = ui.number(field_name, value=value)
         elif annotation is str:
             widget = ui.input(field_name, value=value).classes("w-full")
+        elif _is_list_int(annotation):
+            widget = chip_list_editor([str(item) for item in value or []], label=field_name)
         elif annotation == list[str]:
             widget = chip_list_editor(value if isinstance(value, list) else [], label=field_name)
         elif annotation == dict[str, list[str]]:
@@ -119,28 +118,28 @@ async def _render_form(prefix, cfg_section, current, user):
         inputs[field_name] = widget
 
     async def save():
-        update = {}
-        for field_name, field_info in schema.model_fields.items():
-            widget = inputs[field_name]
-            annotation = field_info.annotation
-            if annotation is bool:
-                update[field_name] = widget.value
-            elif annotation is int:
-                update[field_name] = int(widget.value)
-            elif _is_optional_int(annotation):
-                update[field_name] = None if widget.value in ("", None) else int(widget.value)
-            elif annotation == list[str]:
-                update[field_name] = list(widget.value)
-            elif annotation == dict[str, list[str]]:
-                update[field_name] = widget.value
-            else:
-                update[field_name] = widget.value
         try:
+            update = {}
+            for field_name, field_info in schema.model_fields.items():
+                widget = inputs[field_name]
+                annotation = field_info.annotation
+                if annotation is bool:
+                    update[field_name] = widget.value
+                elif annotation is int:
+                    update[field_name] = int(widget.value)
+                elif _is_list_int(annotation):
+                    update[field_name] = [int(item) for item in widget.value if str(item).strip() != ""]
+                elif annotation == list[str]:
+                    update[field_name] = list(widget.value)
+                elif annotation == dict[str, list[str]]:
+                    update[field_name] = widget.value
+                else:
+                    update[field_name] = widget.value
             new_config = schema.model_validate(update)
             await cfg_section.set(new_config)
             await log_audit("settings", "update", actor_id=user.id, actor_email=user.email, detail=f"section={prefix}")
             ui.notify(t("settings_saved"), color="positive")
-        except ValidationError as e:
+        except (ValueError, ValidationError) as e:
             ui.notify(str(e), color="negative")
 
     async def reset():

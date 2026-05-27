@@ -7,7 +7,6 @@ from datetime import date, timedelta
 from not_dot_net.backend.booking_service import (
     BookingConflictError,
     BookingValidationError,
-    MIN_BOOKING_LEAD_DAYS,
     cancel_booking,
     create_booking,
     create_resource,
@@ -21,9 +20,10 @@ from not_dot_net.backend.booking_service import (
 from not_dot_net.backend.booking_models import Booking, Resource
 from not_dot_net.backend.db import User, session_scope
 from not_dot_net.backend.roles import RoleDefinition, roles_config
+from not_dot_net.config import BookingsConfig, bookings_config
 
 def _valid_start(extra_days: int = 0) -> date:
-    return date.today() + timedelta(days=MIN_BOOKING_LEAD_DAYS + extra_days)
+    return date.today() + timedelta(days=BookingsConfig().minimum_lead_days + extra_days)
 
 
 async def _setup_roles():
@@ -168,6 +168,26 @@ async def test_booking_requires_seven_days_notice():
         await create_booking(r.id, user.id, start, start + timedelta(days=3))
 
 
+async def test_booking_minimum_lead_days_uses_bookings_config():
+    user = await _create_user()
+    r = await _create_test_resource()
+    await bookings_config.set(BookingsConfig(minimum_lead_days=3))
+    try:
+        start = date.today() + timedelta(days=2)
+        with pytest.raises(BookingValidationError, match="at least 3 days"):
+            await create_booking(r.id, user.id, start, start + timedelta(days=3))
+        booking = await create_booking(
+            r.id,
+            user.id,
+            date.today() + timedelta(days=3),
+            date.today() + timedelta(days=6),
+        )
+    finally:
+        await bookings_config.reset()
+
+    assert booking.start_date == date.today() + timedelta(days=3)
+
+
 async def test_booking_exceeds_max_days():
     user = await _create_user()
     r = await _create_test_resource()
@@ -175,6 +195,21 @@ async def test_booking_exceeds_max_days():
     end = start + timedelta(days=200)
     with pytest.raises(BookingValidationError, match="exceed"):
         await create_booking(r.id, user.id, start, end)
+
+
+async def test_booking_max_days_uses_bookings_config():
+    user = await _create_user()
+    r = await _create_test_resource()
+    await bookings_config.set(BookingsConfig(max_booking_days=4))
+    try:
+        start = _valid_start()
+        with pytest.raises(BookingValidationError, match="exceed 4 days"):
+            await create_booking(r.id, user.id, start, start + timedelta(days=5))
+        booking = await create_booking(r.id, user.id, start, start + timedelta(days=4))
+    finally:
+        await bookings_config.reset()
+
+    assert booking.end_date == start + timedelta(days=4)
 
 
 # --- Booking conflicts ---
@@ -214,6 +249,33 @@ async def test_booking_allows_after_resource_setup_buffer():
     await create_booking(r.id, user.id, start, first_end)
     b2 = await create_booking(r.id, user.id, second_start, second_start + timedelta(days=5))
     assert b2.start_date == second_start
+
+
+async def test_booking_setup_buffer_uses_bookings_config():
+    user = await _create_user()
+    r = await _create_test_resource()
+    start = _valid_start()
+    first_end = start + timedelta(days=5)
+    await bookings_config.set(BookingsConfig(resource_setup_buffer_days=2))
+    try:
+        await create_booking(r.id, user.id, start, first_end)
+        with pytest.raises(BookingConflictError, match="2-day setup buffer"):
+            await create_booking(
+                r.id,
+                user.id,
+                first_end + timedelta(days=1),
+                first_end + timedelta(days=3),
+            )
+        b2 = await create_booking(
+            r.id,
+            user.id,
+            first_end + timedelta(days=2),
+            first_end + timedelta(days=4),
+        )
+    finally:
+        await bookings_config.reset()
+
+    assert b2.start_date == first_end + timedelta(days=2)
 
 
 async def test_booking_setup_buffer_is_per_resource():

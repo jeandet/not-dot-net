@@ -54,6 +54,7 @@ async def test_bookings_config_defaults():
     assert "Windows" in cfg.software_tags
     assert cfg.minimum_lead_days == 7
     assert cfg.resource_setup_buffer_days == 7
+    assert cfg.max_booking_days == 183
     assert cfg.reminder_lead_days == 1
 
 
@@ -64,6 +65,7 @@ async def test_bookings_config_roundtrip():
         software_tags={"Linux": ["vim"]},
         minimum_lead_days=4,
         resource_setup_buffer_days=3,
+        max_booking_days=31,
         reminder_lead_days=None,
     )
     await bookings_config.set(custom)
@@ -72,6 +74,7 @@ async def test_bookings_config_roundtrip():
     assert result.software_tags == {"Linux": ["vim"]}
     assert result.minimum_lead_days == 4
     assert result.resource_setup_buffer_days == 3
+    assert result.max_booking_days == 31
     assert result.reminder_lead_days is None
 
 

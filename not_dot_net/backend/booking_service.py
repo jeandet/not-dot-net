@@ -16,7 +16,6 @@ from not_dot_net.config import bookings_config, org_config
 
 MANAGE_BOOKINGS = permission("manage_bookings", "Manage bookings", "Create/edit/delete resources and software")
 
-MAX_BOOKING_DAYS = 183  # ~6 months
 logger = logging.getLogger("not_dot_net.booking_service")
 
 
@@ -155,8 +154,9 @@ async def create_booking(
         raise BookingValidationError(
             f"Bookings must start at least {minimum_lead_days} days from today"
         )
-    if (end_date - start_date).days > MAX_BOOKING_DAYS:
-        raise BookingValidationError(f"Booking cannot exceed {MAX_BOOKING_DAYS} days")
+    max_booking_days = cfg.max_booking_days
+    if (end_date - start_date).days > max_booking_days:
+        raise BookingValidationError(f"Booking cannot exceed {max_booking_days} days")
     setup_buffer_days = cfg.resource_setup_buffer_days
 
     async with session_scope() as session:

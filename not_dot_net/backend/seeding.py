@@ -129,11 +129,11 @@ async def _seed_resources_and_bookings(users: list) -> None:
     """Seed resources and a few sample bookings."""
     from not_dot_net.backend.seed_data import SEED_RESOURCES
     from not_dot_net.backend.booking_service import (
-        MIN_BOOKING_LEAD_DAYS,
         create_resource,
         create_booking,
         list_resources,
     )
+    from not_dot_net.config import bookings_config
 
     existing = await list_resources(active_only=False)
     if existing:
@@ -156,10 +156,11 @@ async def _seed_resources_and_bookings(users: list) -> None:
         return
 
     today = date.today()
+    booking_cfg = await bookings_config.get()
     count = 0
     for res in resources[:5]:
         booker = rng.choice(users)
-        start = today + timedelta(days=rng.randint(MIN_BOOKING_LEAD_DAYS, 30))
+        start = today + timedelta(days=rng.randint(booking_cfg.minimum_lead_days, 30))
         end = start + timedelta(days=rng.randint(1, 14))
         try:
             await create_booking(res.id, booker.id, start, end, note="Dev seed booking")

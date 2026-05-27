@@ -107,6 +107,7 @@ class BookingsConfig(BaseModel):
     }
     minimum_lead_days: int = Field(default=7, ge=0)
     resource_setup_buffer_days: int = Field(default=7, ge=0)
+    max_booking_days: int = Field(default=183, ge=1)
     reminder_lead_days: int | None = Field(default=1, ge=0)
 
 
