@@ -99,7 +99,14 @@ def setup():
                 async def on_lang_change(e):
                     set_locale(e.value)
                     if logged_in:
-                        await save_user_locale(effective_user.id, e.value)
+                        try:
+                            saved = await save_user_locale(effective_user.id, e.value)
+                        except Exception:
+                            ui.notify(t("save_failed"), color="negative")
+                            return
+                        if not saved:
+                            ui.notify(t("save_failed"), color="negative")
+                            return
                     ui.run_javascript("window.location.reload()")
 
                 ui.toggle(

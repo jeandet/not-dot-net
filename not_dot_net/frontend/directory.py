@@ -7,6 +7,7 @@ from sqlalchemy import func, select
 
 from not_dot_net.backend.db import User, AuthMethod, session_scope, get_user_db
 from not_dot_net.backend.profile_photo import (
+    MAX_PROFILE_PHOTO_BYTES,
     profile_photo_data_uri,
     remove_profile_photo,
     save_profile_photo,
@@ -480,13 +481,21 @@ async def _render_edit_form(container, person: User, current_user: User, state: 
                 if not await save_profile_photo(person.id, content):
                     ui.notify(t("profile_photo_upload_failed"), color="negative")
                     return
+                from not_dot_net.backend.audit import log_audit
+                await log_audit(
+                    "user", "update",
+                    actor_id=current_user.id, actor_email=current_user.email,
+                    target_type="user", target_id=person.id,
+                    detail="fields=photo",
+                    metadata={"changes": {"photo": {"old": bool(person.photo), "new": True}}},
+                )
                 ui.notify(t("profile_photo_updated"), color="positive")
                 await _finish_save(container, person, current_user, state)
 
             ui.upload(
                 label=t("upload_profile_photo"),
                 auto_upload=True,
-                max_file_size=2 * 1024 * 1024,
+                max_file_size=MAX_PROFILE_PHOTO_BYTES,
                 on_upload=handle_photo_upload,
             ).props("outlined flat accept='.jpg,.jpeg,.png'").classes("w-full max-w-sm")
 
@@ -495,6 +504,14 @@ async def _render_edit_form(container, person: User, current_user: User, state: 
                     if not await remove_profile_photo(person.id):
                         ui.notify(t("profile_photo_upload_failed"), color="negative")
                         return
+                    from not_dot_net.backend.audit import log_audit
+                    await log_audit(
+                        "user", "update",
+                        actor_id=current_user.id, actor_email=current_user.email,
+                        target_type="user", target_id=person.id,
+                        detail="fields=photo",
+                        metadata={"changes": {"photo": {"old": True, "new": False}}},
+                    )
                     ui.notify(t("profile_photo_removed"), color="positive")
                     await _finish_save(container, person, current_user, state)
 

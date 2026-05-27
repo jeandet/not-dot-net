@@ -72,6 +72,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "is_active": "Active",
         "employment_status": "Employment",
         "logon_never": "Never logged in",
+        "logon_any": "Any",
         "logon_over_30d": "≥ 30 days ago",
         "logon_over_90d": "≥ 90 days ago",
         "logon_over_180d": "≥ 180 days ago",
@@ -489,6 +490,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "is_active": "Actif",
         "employment_status": "Statut",
         "logon_never": "Jamais connecté",
+        "logon_any": "Tous",
         "logon_over_30d": "≥ 30 jours",
         "logon_over_90d": "≥ 90 jours",
         "logon_over_180d": "≥ 180 jours",
@@ -856,7 +858,6 @@ def get_locale(user=None) -> str:
     """Get current locale from user storage, or detect from browser."""
     user_locale = locale_from_user(user)
     if user_locale:
-        app.storage.user["locale"] = user_locale
         return user_locale
 
     stored = app.storage.user.get("locale")
@@ -872,9 +873,7 @@ def get_locale(user=None) -> str:
                 accept = request.headers.get("accept-language", "")
     except Exception:
         accept = ""
-    locale = _parse_accept_language(accept)
-    app.storage.user["locale"] = locale
-    return locale
+    return _parse_accept_language(accept)
 
 
 def _parse_accept_language(header: str) -> str:
