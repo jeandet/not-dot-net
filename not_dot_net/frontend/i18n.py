@@ -72,6 +72,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "is_active": "Active",
         "employment_status": "Employment",
         "logon_never": "Never logged in",
+        "logon_any": "Any",
         "logon_over_30d": "≥ 30 days ago",
         "logon_over_90d": "≥ 90 days ago",
         "logon_over_180d": "≥ 180 days ago",
@@ -99,6 +100,14 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "id_document": "ID Document",
         "bank_details": "Bank Details (RIB)",
         "photo": "Photo",
+        "upload_profile_photo": "Upload profile photo",
+        "remove_profile_photo": "Remove profile photo",
+        "profile_photo_updated": "Profile photo updated",
+        "profile_photo_removed": "Profile photo removed",
+        "profile_photo_too_large": "Profile photo is too large (max 2 MB)",
+        "profile_photo_invalid_type": "Only JPG and PNG images are allowed",
+        "profile_photo_invalid_content": "File content is not a valid JPG or PNG image",
+        "profile_photo_upload_failed": "Could not update profile photo",
         "notes": "Notes",
         "target_name": "Person Name",
         "target_email": "Person Email",
@@ -481,6 +490,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "is_active": "Actif",
         "employment_status": "Statut",
         "logon_never": "Jamais connecté",
+        "logon_any": "Tous",
         "logon_over_30d": "≥ 30 jours",
         "logon_over_90d": "≥ 90 jours",
         "logon_over_180d": "≥ 180 jours",
@@ -508,6 +518,14 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "id_document": "Pièce d'identité",
         "bank_details": "RIB",
         "photo": "Photo",
+        "upload_profile_photo": "Importer une photo de profil",
+        "remove_profile_photo": "Supprimer la photo de profil",
+        "profile_photo_updated": "Photo de profil mise à jour",
+        "profile_photo_removed": "Photo de profil supprimée",
+        "profile_photo_too_large": "La photo de profil est trop lourde (max 2 Mo)",
+        "profile_photo_invalid_type": "Seules les images JPG et PNG sont autorisées",
+        "profile_photo_invalid_content": "Le fichier n'est pas une image JPG ou PNG valide",
+        "profile_photo_upload_failed": "Impossible de mettre à jour la photo de profil",
         "notes": "Remarques",
         "target_name": "Nom de la personne",
         "target_email": "E-mail de la personne",
@@ -829,8 +847,19 @@ SUPPORTED_LOCALES = ("en", "fr")
 DEFAULT_LOCALE = "en"
 
 
-def get_locale() -> str:
+def locale_from_user(user) -> str | None:
+    locale = getattr(user, "preferred_locale", None)
+    if locale in SUPPORTED_LOCALES:
+        return locale
+    return None
+
+
+def get_locale(user=None) -> str:
     """Get current locale from user storage, or detect from browser."""
+    user_locale = locale_from_user(user)
+    if user_locale:
+        return user_locale
+
     stored = app.storage.user.get("locale")
     if stored in SUPPORTED_LOCALES:
         return stored
@@ -844,9 +873,7 @@ def get_locale() -> str:
                 accept = request.headers.get("accept-language", "")
     except Exception:
         accept = ""
-    locale = _parse_accept_language(accept)
-    app.storage.user["locale"] = locale
-    return locale
+    return _parse_accept_language(accept)
 
 
 def _parse_accept_language(header: str) -> str:

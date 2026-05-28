@@ -233,7 +233,7 @@ async def render(current_user: User) -> None:
         ).props("outlined dense stack-label")
         logon_select = ui.select(
             {
-                "any": t("any"),
+                "any": t("logon_any"),
                 "never": t("logon_never"),
                 "30d": t("logon_over_30d"),
                 "90d": t("logon_over_90d"),

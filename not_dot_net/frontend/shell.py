@@ -8,6 +8,7 @@ from nicegui import app, ui
 
 from not_dot_net.backend.db import User
 from not_dot_net.backend.permissions import has_permissions
+from not_dot_net.backend.user_preferences import save_user_locale
 from not_dot_net.backend.users import current_active_user_optional
 from not_dot_net.frontend.admin_settings import render as render_settings
 from not_dot_net.frontend.admin_ad_account import render as render_ad_accounts
@@ -43,7 +44,7 @@ def setup():
         logged_in = user is not None
         effective_user = user or GuestUser()
 
-        locale = get_locale()
+        locale = get_locale(user if logged_in else None)
         people_label = t("people")
         dashboard_label = t("dashboard")
         new_request_label = t("new_request")
@@ -95,8 +96,17 @@ def setup():
             tabs.on_value_change(on_tab_change)
 
             with ui.row().classes("items-center"):
-                def on_lang_change(e):
+                async def on_lang_change(e):
                     set_locale(e.value)
+                    if logged_in:
+                        try:
+                            saved = await save_user_locale(effective_user.id, e.value)
+                        except Exception:
+                            ui.notify(t("save_failed"), color="negative")
+                            return
+                        if not saved:
+                            ui.notify(t("save_failed"), color="negative")
+                            return
                     ui.run_javascript("window.location.reload()")
 
                 ui.toggle(

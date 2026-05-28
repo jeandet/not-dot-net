@@ -50,6 +50,9 @@ class User(SQLAlchemyBaseUserTableUUID, Base):
     last_ad_logon: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True, default=None
     )
+    preferred_locale: Mapped[str | None] = mapped_column(
+        String(5), nullable=True, default=None
+    )
 
 
 _engine: AsyncEngine | None = None
