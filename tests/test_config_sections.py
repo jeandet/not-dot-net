@@ -55,7 +55,7 @@ async def test_bookings_config_defaults():
     assert cfg.minimum_lead_days == 7
     assert cfg.resource_setup_buffer_days == 7
     assert cfg.max_booking_days == 183
-    assert cfg.reminder_lead_days == 1
+    assert cfg.reminder_lead_days == [1]
 
 
 async def test_bookings_config_roundtrip():
@@ -66,7 +66,7 @@ async def test_bookings_config_roundtrip():
         minimum_lead_days=4,
         resource_setup_buffer_days=3,
         max_booking_days=31,
-        reminder_lead_days=None,
+        reminder_lead_days=[7, 1, 0],
     )
     await bookings_config.set(custom)
     result = await bookings_config.get()
@@ -75,7 +75,7 @@ async def test_bookings_config_roundtrip():
     assert result.minimum_lead_days == 4
     assert result.resource_setup_buffer_days == 3
     assert result.max_booking_days == 31
-    assert result.reminder_lead_days is None
+    assert result.reminder_lead_days == [0, 1, 7]
 
 
 async def test_bookings_config_registered():

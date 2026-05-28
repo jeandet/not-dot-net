@@ -6,6 +6,7 @@ from sqlalchemy import select
 
 from not_dot_net.backend.booking_models import Booking, Resource
 from not_dot_net.backend.booking_service import (
+    _booking_reminder_delay_label,
     render_booking_reminder_body,
     send_booking_end_reminders,
 )
@@ -79,6 +80,12 @@ def test_render_booking_reminder_body_escapes_user_content():
     assert "A&amp;B" in body
 
 
+def test_booking_reminder_delay_label():
+    assert _booking_reminder_delay_label(0) == "today"
+    assert _booking_reminder_delay_label(1) == "in 1 day"
+    assert _booking_reminder_delay_label(7) == "in 7 days"
+
+
 async def test_send_booking_end_reminders_queues_mail_and_marks_booking():
     user = await _create_user()
     resource = await _create_resource()
@@ -90,11 +97,11 @@ async def test_send_booking_end_reminders_queues_mail_and_marks_booking():
     assert queued == 1
     send.assert_awaited_once()
     assert send.await_args.args[0] == user.email
-    assert "booking is ending soon" in send.await_args.args[1]
+    assert "booking ends in 1 day" in send.await_args.args[1]
 
     async with session_scope() as session:
         stored = await session.get(Booking, booking.id)
-        assert stored.reminder_sent_at is not None
+        assert stored.reminder_sent_lead_days == [1]
 
 
 async def test_send_booking_end_reminders_does_not_send_twice():
@@ -124,14 +131,14 @@ async def test_send_booking_end_reminders_ignores_later_bookings():
 
     async with session_scope() as session:
         stored = (await session.execute(select(Booking))).scalar_one()
-        assert stored.reminder_sent_at is None
+        assert stored.reminder_sent_lead_days is None
 
 
 async def test_send_booking_end_reminders_uses_configured_lead_days():
     user = await _create_user()
     resource = await _create_resource()
     await _create_booking(user, resource, end_offset_days=7)
-    await bookings_config.set(BookingsConfig(reminder_lead_days=7))
+    await bookings_config.set(BookingsConfig(reminder_lead_days=[7]))
     try:
         with patch("not_dot_net.backend.booking_service.send_mail", new_callable=AsyncMock) as send:
             queued = await send_booking_end_reminders(today=date(2026, 5, 26))
@@ -140,13 +147,14 @@ async def test_send_booking_end_reminders_uses_configured_lead_days():
 
     assert queued == 1
     send.assert_awaited_once()
+    assert "booking ends in 7 days" in send.await_args.args[1]
 
 
 async def test_send_booking_end_reminders_can_be_disabled_with_empty_lead_days():
     user = await _create_user()
     resource = await _create_resource()
     await _create_booking(user, resource, end_offset_days=1)
-    await bookings_config.set(BookingsConfig(reminder_lead_days=None))
+    await bookings_config.set(BookingsConfig(reminder_lead_days=[]))
     try:
         with patch("not_dot_net.backend.booking_service.send_mail", new_callable=AsyncMock) as send:
             queued = await send_booking_end_reminders(today=date(2026, 5, 26))
@@ -161,7 +169,7 @@ async def test_send_booking_end_reminders_zero_lead_days_sends_on_end_date():
     user = await _create_user()
     resource = await _create_resource()
     await _create_booking(user, resource, end_offset_days=0)
-    await bookings_config.set(BookingsConfig(reminder_lead_days=0))
+    await bookings_config.set(BookingsConfig(reminder_lead_days=[0]))
     try:
         with patch("not_dot_net.backend.booking_service.send_mail", new_callable=AsyncMock) as send:
             queued = await send_booking_end_reminders(today=date(2026, 5, 26))
@@ -170,6 +178,25 @@ async def test_send_booking_end_reminders_zero_lead_days_sends_on_end_date():
 
     assert queued == 1
     send.assert_awaited_once()
+    assert "booking ends today" in send.await_args.args[1]
+
+
+async def test_send_booking_end_reminders_supports_multiple_lead_days():
+    user = await _create_user()
+    resource = await _create_resource()
+    booking = await _create_booking(user, resource, end_offset_days=7)
+    await bookings_config.set(BookingsConfig(reminder_lead_days=[7, 1]))
+    try:
+        with patch("not_dot_net.backend.booking_service.send_mail", new_callable=AsyncMock) as send:
+            assert await send_booking_end_reminders(today=date(2026, 5, 26)) == 1
+            assert await send_booking_end_reminders(today=date(2026, 6, 1)) == 1
+    finally:
+        await bookings_config.reset()
+
+    assert send.await_count == 2
+    async with session_scope() as session:
+        stored = await session.get(Booking, booking.id)
+        assert stored.reminder_sent_lead_days == [1, 7]
 
 
 async def test_send_booking_end_reminders_ignores_inactive_users():

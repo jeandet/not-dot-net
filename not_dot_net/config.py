@@ -1,6 +1,6 @@
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from not_dot_net.backend.app_config import section
 
@@ -108,7 +108,29 @@ class BookingsConfig(BaseModel):
     minimum_lead_days: int = Field(default=7, ge=0)
     resource_setup_buffer_days: int = Field(default=7, ge=0)
     max_booking_days: int = Field(default=183, ge=1)
-    reminder_lead_days: int | None = Field(default=1, ge=0)
+    reminder_lead_days: list[int] = Field(default_factory=lambda: [1])
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize_legacy_reminder_lead_days(cls, data):
+        if isinstance(data, dict) and "reminder_lead_days" in data:
+            value = data.get("reminder_lead_days")
+            if value is None:
+                data = {**data, "reminder_lead_days": []}
+            elif isinstance(value, int):
+                data = {**data, "reminder_lead_days": [value]}
+        return data
+
+    @model_validator(mode="after")
+    def _validate_reminder_lead_days(self):
+        normalized = sorted({int(day) for day in self.reminder_lead_days})
+        invalid = [day for day in normalized if day < 0 or day > self.max_booking_days]
+        if invalid:
+            raise ValueError(
+                "reminder_lead_days must be between 0 and max_booking_days"
+            )
+        self.reminder_lead_days = normalized
+        return self
 
 
 bookings_config = section("bookings", BookingsConfig, label="Bookings")

@@ -2,7 +2,7 @@
 
 import logging
 import uuid
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, timedelta
 from html import escape
 
 from sqlalchemy import select
@@ -240,10 +240,18 @@ async def get_resource_by_id(resource_id: uuid.UUID) -> Resource | None:
 # --- Booking reminders ---
 
 
-async def _booking_reminder_subject() -> str:
+def _booking_reminder_delay_label(days_until_end: int) -> str:
+    if days_until_end == 0:
+        return "today"
+    if days_until_end == 1:
+        return "in 1 day"
+    return f"in {days_until_end} days"
+
+
+async def _booking_reminder_subject(days_until_end: int) -> str:
     cfg = await org_config.get()
     app_name = (cfg.app_name or "not-dot-net").strip() or "not-dot-net"
-    return f"[{app_name}] Your booking is ending soon"
+    return f"[{app_name}] Your booking ends {_booking_reminder_delay_label(days_until_end)}"
 
 
 def render_booking_reminder_body(
@@ -269,18 +277,16 @@ def render_booking_reminder_body(
 
 
 async def send_booking_end_reminders(today: date | None = None) -> int:
-    """Queue reminder emails for bookings ending within the configured lead window.
+    """Queue reminder emails for bookings ending on configured lead days.
 
-    Returns the number of reminder emails queued. Each booking is marked
-    immediately after enqueueing to avoid duplicate reminders on later scans.
+    Returns the number of reminder emails queued. Each booking stores the lead
+    days already notified to avoid duplicate mails across multiple reminders.
     """
     today = today or date.today()
     lead_days = (await bookings_config.get()).reminder_lead_days
-    if lead_days is None:
+    if not lead_days:
         return 0
-    latest_end = today + timedelta(days=lead_days)
-    subject = await _booking_reminder_subject()
-    now = datetime.now(timezone.utc)
+    latest_end = today + timedelta(days=max(lead_days))
     queued = 0
 
     async with session_scope() as session:
@@ -289,7 +295,6 @@ async def send_booking_end_reminders(today: date | None = None) -> int:
             .join(User, Booking.user_id == User.id)
             .join(Resource, Booking.resource_id == Resource.id)
             .where(
-                Booking.reminder_sent_at.is_(None),
                 Booking.end_date >= today,
                 Booking.end_date <= latest_end,
                 User.is_active.is_(True),
@@ -301,12 +306,19 @@ async def send_booking_end_reminders(today: date | None = None) -> int:
         rows = list(result.all())
 
         for booking, user, resource in rows:
+            days_until_end = (booking.end_date - today).days
+            if days_until_end not in lead_days:
+                continue
+            sent_lead_days = set(booking.reminder_sent_lead_days or [])
+            if days_until_end in sent_lead_days:
+                continue
             await send_mail(
                 user.email,
-                subject,
+                await _booking_reminder_subject(days_until_end),
                 render_booking_reminder_body(user=user, booking=booking, resource=resource),
             )
-            booking.reminder_sent_at = now
+            sent_lead_days.add(days_until_end)
+            booking.reminder_sent_lead_days = sorted(sent_lead_days)
             await session.commit()
             queued += 1
 
