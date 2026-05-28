@@ -844,9 +844,7 @@ def get_locale() -> str:
                 accept = request.headers.get("accept-language", "")
     except Exception:
         accept = ""
-    locale = _parse_accept_language(accept)
-    app.storage.user["locale"] = locale
-    return locale
+    return _parse_accept_language(accept)
 
 
 def _parse_accept_language(header: str) -> str:
