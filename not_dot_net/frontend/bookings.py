@@ -4,6 +4,7 @@ import uuid
 from datetime import date, timedelta
 
 from nicegui import ui
+from sqlalchemy import select
 
 from not_dot_net.backend.booking_service import (
     BookingConflictError,
@@ -24,6 +25,45 @@ from not_dot_net.config import org_config
 from not_dot_net.frontend.i18n import t
 
 RESOURCE_TYPES = ["desktop", "laptop"]
+
+
+def _minimum_booking_start(today: date | None = None, minimum_lead_days: int = 7) -> date:
+    return (today or date.today()) + timedelta(days=minimum_lead_days)
+
+
+def _default_booking_range(today: date | None = None, minimum_lead_days: int = 7) -> dict[str, str]:
+    start = _minimum_booking_start(today, minimum_lead_days)
+    return {"from": str(start), "to": str(start + timedelta(days=7))}
+
+
+def _normalize_booking_range(
+    value,
+    today: date | None = None,
+    minimum_lead_days: int = 7,
+) -> dict[str, str]:
+    default_range = _default_booking_range(today, minimum_lead_days)
+    if not isinstance(value, dict):
+        return default_range
+    try:
+        start = date.fromisoformat(value["from"])
+        end = date.fromisoformat(value["to"])
+    except (KeyError, TypeError, ValueError):
+        return default_range
+
+    min_start = _minimum_booking_start(today, minimum_lead_days)
+    if start >= min_start:
+        return {"from": str(start), "to": str(end)}
+
+    duration = max((end - start).days, 1)
+    return {"from": str(min_start), "to": str(min_start + timedelta(days=duration))}
+
+
+def _qdate_option_date(value: date) -> str:
+    return value.isoformat().replace("-", "/")
+
+
+def _truncate_booking_owner(name: str, max_chars: int = 24) -> str:
+    return name if len(name) <= max_chars else f"{name[:max_chars]}..."
 
 
 def render(user: User):
@@ -47,6 +87,7 @@ async def _render_bookings(container, user: User, filter_range=None):
     resources = await list_resources(active_only=not is_admin)
     logged_in = user.is_active
     my_bookings = await list_bookings_for_user(user.id) if logged_in else []
+    booking_cfg = await bookings_config.get()
 
     with container:
         # --- My Bookings ---
@@ -87,7 +128,11 @@ async def _render_bookings(container, user: User, filter_range=None):
 
         # --- Global date range filter ---
         today = date.today()
-        default_range = filter_range or {"from": str(today), "to": str(today + timedelta(days=7))}
+        default_range = _normalize_booking_range(
+            filter_range,
+            today,
+            booking_cfg.minimum_lead_days,
+        )
         state = {"range": default_range}
 
         def _range_label(r):
@@ -105,7 +150,11 @@ async def _render_bookings(container, user: User, filter_range=None):
                 with range_display.add_slot("append"):
                     ui.icon("event").classes("cursor-pointer")
                 with ui.menu() as menu:
-                    date_picker = ui.date(default_range).props("range")
+                    min_start = _minimum_booking_start(today, booking_cfg.minimum_lead_days)
+                    min_start_option = _qdate_option_date(min_start)
+                    date_picker = ui.date(default_range).props(
+                        f"range :options=\"date => date >= '{min_start_option}'\""
+                    )
 
             all_sites = [t("all_locations")] + sites
             site_select = ui.select(
@@ -125,13 +174,18 @@ async def _render_bookings(container, user: User, filter_range=None):
             val = date_picker.value
             if not val or not isinstance(val, dict):
                 return
-            state["range"] = val
-            range_display.value = _range_label(val)
+            normalized = _normalize_booking_range(val, minimum_lead_days=booking_cfg.minimum_lead_days)
+            if normalized != val:
+                date_picker.value = normalized
+                date_picker.update()
+            state["range"] = normalized
+            range_display.value = _range_label(normalized)
             menu.close()
             await _render_resource_list(
-                container, resource_area, resources, user, is_admin, val,
+                container, resource_area, resources, user, is_admin, normalized,
                 site_filter=site_select.value if site_select.value in sites else None,
                 type_filter=type_select.value if type_select.value in RESOURCE_TYPES else None,
+                setup_buffer_days=booking_cfg.resource_setup_buffer_days,
             )
 
         date_picker.on_value_change(lambda _: apply_filter())
@@ -159,11 +213,12 @@ async def _render_bookings(container, user: User, filter_range=None):
         # Initial render with default range
         await _render_resource_list(
             container, resource_area, resources, user, is_admin, default_range,
+            setup_buffer_days=booking_cfg.resource_setup_buffer_days,
         )
 
 
 async def _render_resource_list(outer_container, area, resources, user, is_admin, date_range,
-                                site_filter=None, type_filter=None):
+                                site_filter=None, type_filter=None, setup_buffer_days: int | None = None):
     """Render resource cards filtered by availability, site, and type."""
     area.clear()
     try:
@@ -180,15 +235,40 @@ async def _render_resource_list(outer_container, area, resources, user, is_admin
         filtered = [r for r in filtered if r.resource_type == type_filter]
 
     # Build availability map
+    setup_buffer_days = (
+        setup_buffer_days
+        if setup_buffer_days is not None
+        else (await bookings_config.get()).resource_setup_buffer_days
+    )
     availability: dict[uuid.UUID, bool] = {}
+    conflict_bookings = {}
     for res in filtered:
         bookings = await list_bookings_for_resource(
-            res.id, from_date=range_start, to_date=range_end,
+            res.id,
+            from_date=range_start - timedelta(days=setup_buffer_days),
+            to_date=range_end + timedelta(days=setup_buffer_days),
         )
-        has_conflict = any(
-            b.start_date < range_end and b.end_date > range_start for b in bookings
-        )
+        conflicting_booking = next((
+            b
+            for b in bookings
+            if b.start_date < range_end + timedelta(days=setup_buffer_days)
+            and b.end_date > range_start - timedelta(days=setup_buffer_days)
+        ), None)
+        has_conflict = conflicting_booking is not None
+        if conflicting_booking is not None:
+            conflict_bookings[res.id] = conflicting_booking
         availability[res.id] = not has_conflict
+
+    owner_labels = {}
+    if conflict_bookings:
+        user_ids = {booking.user_id for booking in conflict_bookings.values()}
+        async with session_scope() as session:
+            result = await session.execute(select(User).where(User.id.in_(user_ids)))
+            users_by_id = {u.id: u for u in result.scalars().all()}
+        for resource_id, booking in conflict_bookings.items():
+            owner = users_by_id.get(booking.user_id)
+            owner_name = owner.full_name or owner.email if owner else "?"
+            owner_labels[resource_id] = _truncate_booking_owner(owner_name)
 
     org = await org_config.get()
     sites = org.sites
@@ -222,6 +302,7 @@ async def _render_resource_list(outer_container, area, resources, user, is_admin
                     await _resource_card(
                         outer_container, res, user, is_admin, state,
                         is_available=availability.get(res.id, True),
+                        booked_by=owner_labels.get(res.id),
                         book_range=date_range,
                     )
 
@@ -234,7 +315,7 @@ def _get_resource_for_booking(resource_id, resources):
 
 
 async def _resource_card(outer_container, res, user, is_admin, state,
-                         is_available=True, book_range=None):
+                         is_available=True, booked_by=None, book_range=None):
     with ui.card().classes("cursor-pointer q-py-sm q-px-md") as card:
         with ui.row().classes("items-center justify-between w-full"):
             with ui.column().classes("gap-0"):
@@ -255,7 +336,7 @@ async def _resource_card(outer_container, res, user, is_admin, state,
                     if parts:
                         ui.label(" · ".join(parts)).classes("text-xs text-grey-6")
             ui.badge(
-                t("available") if is_available else t("booked_by"),
+                t("available") if is_available else f"{t('booked_by')} {booked_by or '?'}",
                 color="positive" if is_available else "orange",
             )
 
@@ -335,10 +416,14 @@ async def _render_resource_detail(outer_container, res, user, is_admin, book_ran
         return
 
     ui.label(t("book")).classes("text-subtitle2 mt-3 mb-1")
-    default_range = book_range or {"from": str(today), "to": str(today + timedelta(days=1))}
+    bc = await bookings_config.get()
+    default_range = _normalize_booking_range(
+        book_range or _default_booking_range(today, bc.minimum_lead_days),
+        today,
+        bc.minimum_lead_days,
+    )
     range_label = f"{default_range['from']} → {default_range['to']}"
 
-    bc = await bookings_config.get()
     os_choices = bc.os_choices
     all_software = bc.software_tags
 

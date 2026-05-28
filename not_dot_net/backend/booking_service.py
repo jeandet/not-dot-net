@@ -1,18 +1,22 @@
 """Booking service — resource CRUD and reservation management."""
 
+import logging
 import uuid
 from datetime import date, timedelta
+from html import escape
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
 from not_dot_net.backend.booking_models import Booking, Resource
-from not_dot_net.backend.db import session_scope
+from not_dot_net.backend.db import User, session_scope
+from not_dot_net.backend.mail import send_mail
 from not_dot_net.backend.permissions import check_permission, has_permissions, permission
+from not_dot_net.config import bookings_config, org_config
 
 MANAGE_BOOKINGS = permission("manage_bookings", "Manage bookings", "Create/edit/delete resources and software")
 
-MAX_BOOKING_DAYS = 183  # ~6 months
+logger = logging.getLogger("not_dot_net.booking_service")
 
 
 class BookingConflictError(Exception):
@@ -143,8 +147,17 @@ async def create_booking(
         raise BookingValidationError("End date must be after start date")
     if start_date < date.today():
         raise BookingValidationError("Cannot book in the past")
-    if (end_date - start_date).days > MAX_BOOKING_DAYS:
-        raise BookingValidationError(f"Booking cannot exceed {MAX_BOOKING_DAYS} days")
+    cfg = await bookings_config.get()
+    minimum_lead_days = cfg.minimum_lead_days
+    earliest_start = date.today() + timedelta(days=minimum_lead_days)
+    if start_date < earliest_start:
+        raise BookingValidationError(
+            f"Bookings must start at least {minimum_lead_days} days from today"
+        )
+    max_booking_days = cfg.max_booking_days
+    if (end_date - start_date).days > max_booking_days:
+        raise BookingValidationError(f"Booking cannot exceed {max_booking_days} days")
+    setup_buffer_days = cfg.resource_setup_buffer_days
 
     async with session_scope() as session:
         async with session.begin():
@@ -159,12 +172,14 @@ async def create_booking(
             conflicts = await session.execute(
                 select(Booking).where(
                     Booking.resource_id == resource_id,
-                    Booking.start_date < end_date,
-                    Booking.end_date > start_date,
+                    Booking.start_date < end_date + timedelta(days=setup_buffer_days),
+                    Booking.end_date > start_date - timedelta(days=setup_buffer_days),
                 ).with_for_update()
             )
             if conflicts.scalars().first():
-                raise BookingConflictError("This resource is already booked for the selected period")
+                raise BookingConflictError(
+                    f"This resource is already booked or within the {setup_buffer_days}-day setup buffer"
+                )
 
             booking = Booking(
                 resource_id=resource_id,
@@ -220,3 +235,101 @@ async def cancel_booking(booking_id: uuid.UUID, user_id: uuid.UUID | None = None
 async def get_resource_by_id(resource_id: uuid.UUID) -> Resource | None:
     async with session_scope() as session:
         return await session.get(Resource, resource_id)
+
+
+# --- Booking reminders ---
+
+
+def _booking_reminder_delay_label(days_until_end: int) -> str:
+    if days_until_end == 0:
+        return "today"
+    if days_until_end == 1:
+        return "in 1 day"
+    return f"in {days_until_end} days"
+
+
+async def _booking_reminder_subject(days_until_end: int) -> str:
+    cfg = await org_config.get()
+    app_name = (cfg.app_name or "not-dot-net").strip() or "not-dot-net"
+    return f"[{app_name}] Your booking ends {_booking_reminder_delay_label(days_until_end)}"
+
+
+def render_booking_reminder_body(
+    *,
+    user: User,
+    booking: Booking,
+    resource: Resource,
+) -> str:
+    display_name = user.full_name or user.email
+    software = ", ".join(booking.software_tags or []) or "-"
+    return (
+        f"<p>Hello {escape(display_name)},</p>"
+        "<p>Your booking is ending soon.</p>"
+        "<table>"
+        f"<tr><td><strong>Resource</strong></td><td>{escape(resource.name)}</td></tr>"
+        f"<tr><td><strong>Start date</strong></td><td>{booking.start_date}</td></tr>"
+        f"<tr><td><strong>End date</strong></td><td>{booking.end_date}</td></tr>"
+        f"<tr><td><strong>OS</strong></td><td>{escape(booking.os_choice or '-')}</td></tr>"
+        f"<tr><td><strong>Software</strong></td><td>{escape(software)}</td></tr>"
+        "</table>"
+        "<p>Please prepare to return or release the resource at the end of your booking.</p>"
+    )
+
+
+async def send_booking_end_reminders(today: date | None = None) -> int:
+    """Queue reminder emails for bookings ending on configured lead days.
+
+    Returns the number of reminder emails queued. Each booking stores the lead
+    days already notified to avoid duplicate mails across multiple reminders.
+    """
+    today = today or date.today()
+    lead_days = (await bookings_config.get()).reminder_lead_days
+    if not lead_days:
+        return 0
+    latest_end = today + timedelta(days=max(lead_days))
+    queued = 0
+
+    async with session_scope() as session:
+        result = await session.execute(
+            select(Booking, User, Resource)
+            .join(User, Booking.user_id == User.id)
+            .join(Resource, Booking.resource_id == Resource.id)
+            .where(
+                Booking.end_date >= today,
+                Booking.end_date <= latest_end,
+                User.is_active.is_(True),
+                User.email.is_not(None),
+                User.email != "",
+            )
+            .order_by(Booking.end_date, Resource.name)
+        )
+        rows = list(result.all())
+
+        for booking, user, resource in rows:
+            days_until_end = (booking.end_date - today).days
+            if days_until_end not in lead_days:
+                continue
+            sent_lead_days = set(booking.reminder_sent_lead_days or [])
+            if days_until_end in sent_lead_days:
+                continue
+            await send_mail(
+                user.email,
+                await _booking_reminder_subject(days_until_end),
+                render_booking_reminder_body(user=user, booking=booking, resource=resource),
+            )
+            sent_lead_days.add(days_until_end)
+            booking.reminder_sent_lead_days = sorted(sent_lead_days)
+            await session.commit()
+            queued += 1
+
+    return queued
+
+
+async def run_booking_reminder_job() -> None:
+    """APScheduler entrypoint for booking reminder emails."""
+    try:
+        queued = await send_booking_end_reminders()
+        if queued:
+            logger.info("Queued %d booking reminder email(s)", queued)
+    except Exception:
+        logger.exception("Booking reminder job failed")

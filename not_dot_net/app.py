@@ -79,6 +79,7 @@ def create_app(
         _lock_socketio_cors()
 
     _outbox_task: dict[str, asyncio.Task | None] = {"task": None}
+    _scheduler = {"scheduler": None}
 
     async def startup():
         logger.info("Running async startup...")
@@ -95,12 +96,30 @@ def create_app(
         _outbox_task["task"] = asyncio.create_task(run_outbox_worker())
         logger.info("Mail outbox worker started")
 
+        from apscheduler.schedulers.asyncio import AsyncIOScheduler
+        from not_dot_net.backend.booking_service import run_booking_reminder_job
+        scheduler = AsyncIOScheduler()
+        scheduler.add_job(
+            run_booking_reminder_job,
+            "interval",
+            hours=24,
+            id="booking_end_reminders",
+            max_instances=1,
+            coalesce=True,
+        )
+        scheduler.start()
+        _scheduler["scheduler"] = scheduler
+        logger.info("Booking reminder scheduler started")
+
         from not_dot_net.backend.auth.ldap import start_connection_reaper
         start_connection_reaper()
         logger.info("Startup complete")
 
     async def shutdown():
         logger.info("Shutting down...")
+        scheduler = _scheduler["scheduler"]
+        if scheduler is not None:
+            scheduler.shutdown(wait=False)
         task = _outbox_task["task"]
         if task is not None:
             task.cancel()

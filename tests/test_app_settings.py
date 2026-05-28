@@ -11,13 +11,38 @@ async def test_bookings_config_defaults():
     cfg = await bookings_config.get()
     assert "Windows" in cfg.os_choices
     assert "Ubuntu" in cfg.software_tags
+    assert cfg.minimum_lead_days == 7
+    assert cfg.resource_setup_buffer_days == 7
+    assert cfg.max_booking_days == 183
+    assert cfg.reminder_lead_days == [1]
 
 
 async def test_bookings_config_set_os_choices():
-    custom = BookingsConfig(os_choices=["CustomOS"], software_tags={})
+    custom = BookingsConfig(
+        os_choices=["CustomOS"],
+        software_tags={},
+        minimum_lead_days=5,
+        resource_setup_buffer_days=4,
+        max_booking_days=42,
+        reminder_lead_days=[7, 1, 0],
+    )
     await bookings_config.set(custom)
     cfg = await bookings_config.get()
     assert cfg.os_choices == ["CustomOS"]
+    assert cfg.minimum_lead_days == 5
+    assert cfg.resource_setup_buffer_days == 4
+    assert cfg.max_booking_days == 42
+    assert cfg.reminder_lead_days == [0, 1, 7]
+
+
+def test_bookings_config_accepts_legacy_single_reminder_lead_day():
+    cfg = BookingsConfig.model_validate({"reminder_lead_days": 7})
+    assert cfg.reminder_lead_days == [7]
+
+
+def test_bookings_config_rejects_reminders_after_max_booking_days():
+    with pytest.raises(ValueError, match="reminder_lead_days"):
+        BookingsConfig(max_booking_days=10, reminder_lead_days=[11])
 
 
 async def test_bookings_config_reset():
@@ -38,6 +63,14 @@ def test_admin_settings_detects_enum_fields():
     assert _is_enum(Mode) is True
     assert _is_enum(str) is False
     assert _is_enum(list[str]) is False
+
+
+def test_admin_settings_detects_list_int_fields():
+    from not_dot_net.frontend.admin_settings import _is_list_int
+
+    assert _is_list_int(list[int]) is True
+    assert _is_list_int(list[str]) is False
+    assert _is_list_int(int) is False
 
 
 def test_admin_settings_dict_str_list_str_is_not_complex():

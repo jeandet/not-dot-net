@@ -52,15 +52,30 @@ async def test_bookings_config_defaults():
     cfg = await bookings_config.get()
     assert "Windows" in cfg.os_choices
     assert "Windows" in cfg.software_tags
+    assert cfg.minimum_lead_days == 7
+    assert cfg.resource_setup_buffer_days == 7
+    assert cfg.max_booking_days == 183
+    assert cfg.reminder_lead_days == [1]
 
 
 async def test_bookings_config_roundtrip():
     from not_dot_net.config import bookings_config, BookingsConfig
-    custom = BookingsConfig(os_choices=["Linux"], software_tags={"Linux": ["vim"]})
+    custom = BookingsConfig(
+        os_choices=["Linux"],
+        software_tags={"Linux": ["vim"]},
+        minimum_lead_days=4,
+        resource_setup_buffer_days=3,
+        max_booking_days=31,
+        reminder_lead_days=[7, 1, 0],
+    )
     await bookings_config.set(custom)
     result = await bookings_config.get()
     assert result.os_choices == ["Linux"]
     assert result.software_tags == {"Linux": ["vim"]}
+    assert result.minimum_lead_days == 4
+    assert result.resource_setup_buffer_days == 3
+    assert result.max_booking_days == 31
+    assert result.reminder_lead_days == [0, 1, 7]
 
 
 async def test_bookings_config_registered():
