@@ -44,6 +44,24 @@ def test_choose_workflow_approver_falls_back_to_creator_without_directors():
     assert _choose_workflow_approver(rng, [], creator) == creator
 
 
+def test_onboarding_workflow_seeds_use_current_schema():
+    from not_dot_net.backend.seed_data import WORKFLOW_SEEDS
+
+    legacy_fields = {"person_name", "person_email", "role_status", "team"}
+    target_person_steps = {"newcomer_info", "admin_validation", "done", "rejected"}
+    for seed in WORKFLOW_SEEDS:
+        if seed["type"] != "onboarding":
+            continue
+        data = seed["data"]
+        assert "contact_email" in data
+        assert "status" in data
+        assert "employer" in data
+        assert not legacy_fields.intersection(data)
+        if seed["step"] in target_person_steps:
+            assert "first_name" in data
+            assert "last_name" in data
+
+
 @pytest.mark.asyncio
 async def test_seed_fake_workflows_submits_with_valid_actors(monkeypatch):
     from not_dot_net.backend import seed_data, workflow_service
