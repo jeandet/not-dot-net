@@ -7,17 +7,18 @@ from sqlalchemy import func, select
 
 from not_dot_net.backend.db import User, AuthMethod, session_scope, get_user_db
 from not_dot_net.backend.profile_photo import (
-    MAX_PROFILE_PHOTO_BYTES,
     profile_photo_data_uri,
+    profile_photo_max_bytes,
     remove_profile_photo,
     save_profile_photo,
-    validate_profile_photo,
+    validate_profile_photo_upload,
 )
 from not_dot_net.backend.schemas import UserUpdate
 from not_dot_net.backend.users import get_user_manager
 from not_dot_net.frontend.i18n import t
 from not_dot_net.backend.permissions import permission, has_permissions
 from not_dot_net.backend.auth.ldap import AD_ATTR_MAP
+from not_dot_net.config import files_config
 
 MANAGE_USERS = permission("manage_users", "Manage users", "Edit/delete users in directory")
 
@@ -462,6 +463,7 @@ async def _render_edit_form(container, person: User, current_user: User, state: 
         _add_field("description", t("description"), person.description or "")
         _add_field("webpage", t("webpage"), person.webpage or "")
 
+        files_cfg = await files_config.get()
         with ui.column().classes("w-full gap-2"):
             ui.label(t("photo")).classes("text-sm font-medium")
             photo_uri = profile_photo_data_uri(person.photo)
@@ -474,7 +476,7 @@ async def _render_edit_form(container, person: User, current_user: User, state: 
                 upload = event.file
                 content = await upload.read()
                 filename = upload.name or ""
-                error = validate_profile_photo(content, filename)
+                error = await validate_profile_photo_upload(content, filename)
                 if error:
                     ui.notify(t(error), color="negative")
                     return
@@ -495,7 +497,7 @@ async def _render_edit_form(container, person: User, current_user: User, state: 
             ui.upload(
                 label=t("upload_profile_photo"),
                 auto_upload=True,
-                max_file_size=MAX_PROFILE_PHOTO_BYTES,
+                max_file_size=profile_photo_max_bytes(files_cfg.profile_photo_max_size_mb),
                 on_upload=handle_photo_upload,
             ).props("outlined flat accept='.jpg,.jpeg,.png'").classes("w-full max-w-sm")
 

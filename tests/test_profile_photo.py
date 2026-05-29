@@ -1,7 +1,7 @@
 from not_dot_net.backend.db import User, session_scope
 from not_dot_net.backend.profile_photo import (
-    MAX_PROFILE_PHOTO_BYTES,
     profile_photo_data_uri,
+    profile_photo_max_bytes,
     profile_photo_mime,
     remove_profile_photo,
     save_profile_photo,
@@ -42,8 +42,12 @@ def test_validate_profile_photo_rejects_content_mismatch():
 
 
 def test_validate_profile_photo_rejects_large_file():
-    content = JPEG_BYTES + b"x" * MAX_PROFILE_PHOTO_BYTES
-    assert validate_profile_photo(content, "avatar.jpg") == "profile_photo_too_large"
+    content = JPEG_BYTES + b"x" * profile_photo_max_bytes(1)
+    assert validate_profile_photo(content, "avatar.jpg", max_size_mb=1) == "profile_photo_too_large"
+
+
+def test_profile_photo_max_bytes_uses_megabytes():
+    assert profile_photo_max_bytes(2) == 2 * 1024 * 1024
 
 
 async def test_save_and_remove_profile_photo():

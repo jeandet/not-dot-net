@@ -3,10 +3,14 @@ import uuid
 from pathlib import PurePosixPath
 
 from not_dot_net.backend.db import User, session_scope
+from not_dot_net.config import files_config
 
 
-MAX_PROFILE_PHOTO_BYTES = 2 * 1024 * 1024
 ALLOWED_PROFILE_PHOTO_EXTENSIONS = {".jpg", ".jpeg", ".png"}
+
+
+def profile_photo_max_bytes(max_size_mb: int) -> int:
+    return max_size_mb * 1024 * 1024
 
 
 def profile_photo_mime(content: bytes) -> str | None:
@@ -27,8 +31,8 @@ def profile_photo_data_uri(content: bytes | None) -> str | None:
     return f"data:{mime};base64,{b64}"
 
 
-def validate_profile_photo(content: bytes, filename: str) -> str | None:
-    if len(content) > MAX_PROFILE_PHOTO_BYTES:
+def validate_profile_photo(content: bytes, filename: str, max_size_mb: int = 2) -> str | None:
+    if len(content) > profile_photo_max_bytes(max_size_mb):
         return "profile_photo_too_large"
 
     ext = PurePosixPath(filename).suffix.lower()
@@ -39,6 +43,11 @@ def validate_profile_photo(content: bytes, filename: str) -> str | None:
         return "profile_photo_invalid_content"
 
     return None
+
+
+async def validate_profile_photo_upload(content: bytes, filename: str) -> str | None:
+    cfg = await files_config.get()
+    return validate_profile_photo(content, filename, cfg.profile_photo_max_size_mb)
 
 
 async def save_profile_photo(user_id: uuid.UUID, content: bytes) -> bool:
