@@ -14,19 +14,29 @@ from not_dot_net.frontend.i18n import TRANSLATIONS, get_locale, t
 _log = logging.getLogger(__name__)
 
 _NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
+_NOMINATIM_REVERSE_URL = "https://nominatim.openstreetmap.org/reverse"
 _NOMINATIM_HEADERS = {"User-Agent": "LPP-Intranet/1.0"}
+_NOMINATIM_REVERSE_LOCALE = "en"
+
+
+def _nominatim_headers(locale: str | None = None) -> dict[str, str]:
+    headers = dict(_NOMINATIM_HEADERS)
+    if locale:
+        headers["Accept-Language"] = locale
+    return headers
 
 
 async def _nominatim_search(query: str) -> list[dict]:
     """Returns list of {display_name, lat, lon}."""
     if len(query) < 3:
         return []
+    locale = get_locale()
     try:
         async with httpx.AsyncClient() as client:
             resp = await client.get(
                 _NOMINATIM_URL,
-                params={"q": query, "format": "json", "limit": 5},
-                headers=_NOMINATIM_HEADERS,
+                params={"q": query, "format": "json", "limit": 5, "accept-language": locale},
+                headers=_nominatim_headers(locale),
                 timeout=5,
             )
             if resp.status_code != 200:
@@ -38,6 +48,64 @@ async def _nominatim_search(query: str) -> list[dict]:
     except Exception:
         _log.exception("Nominatim search failed")
         return []
+
+
+def _format_reverse_location(payload: dict) -> str:
+    address = payload.get("address") if isinstance(payload, dict) else None
+    if not isinstance(address, dict):
+        return payload.get("display_name", "") if isinstance(payload, dict) else ""
+    city = (
+        address.get("city")
+        or address.get("town")
+        or address.get("village")
+        or address.get("municipality")
+        or address.get("county")
+    )
+    display_name = payload.get("display_name", "") if isinstance(payload, dict) else ""
+    if display_name and city:
+        parts = [part.strip() for part in display_name.split(",") if part.strip()]
+        city_index = next((i for i, part in enumerate(parts) if part == city), None)
+        if city_index is not None:
+            return ", ".join(parts[city_index:])
+
+    location_parts = [
+        city,
+        address.get("county"),
+        address.get("state"),
+        address.get("region"),
+        address.get("postcode"),
+        address.get("country"),
+    ]
+    compact = []
+    for part in location_parts:
+        if part and part not in compact:
+            compact.append(part)
+    return ", ".join(compact) or display_name
+
+
+async def _nominatim_reverse(lat: float, lon: float) -> str:
+    """Return a compact location label for map clicks."""
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(
+                _NOMINATIM_REVERSE_URL,
+                params={
+                    "lat": lat,
+                    "lon": lon,
+                    "format": "json",
+                    "zoom": 10,
+                    "addressdetails": 1,
+                    "accept-language": _NOMINATIM_REVERSE_LOCALE,
+                },
+                headers=_nominatim_headers(_NOMINATIM_REVERSE_LOCALE),
+                timeout=5,
+            )
+            if resp.status_code != 200:
+                return ""
+            return _format_reverse_location(resp.json())
+    except Exception:
+        _log.exception("Nominatim reverse search failed")
+        return ""
 
 
 async def _render_field(field_cfg, data, fields, files, on_file_upload, max_upload_size_mb, width_class):
@@ -86,11 +154,25 @@ async def _render_field(field_cfg, data, fields, files, on_file_upload, max_uplo
             value=value or None,
             with_input=True,
         ).props("outlined dense stack-label use-input hide-selected fill-input input-debounce=500").classes("w-full")
-        loc_map = ui.leaflet(center=(48.71, 2.21), zoom=4).classes("w-full rounded").style("height: 200px")
+        loc_map = ui.leaflet(center=(48.71, 2.21), zoom=4).classes("w-full rounded mt-3").style("height: 450px")
         loc_marker = None
+        ignore_next_input = False
+        reverse_lookup_running = False
+
+        def _set_marker(lat: float, lon: float):
+            nonlocal loc_marker
+            loc_map.set_center((lat, lon))
+            loc_map.set_zoom(12)
+            if loc_marker is not None:
+                loc_marker.move(lat, lon)
+            else:
+                loc_marker = loc_map.marker(latlng=(lat, lon))
 
         async def _on_input_value(e, sel=loc_select):
-            nonlocal nominatim_results
+            nonlocal ignore_next_input, nominatim_results
+            if ignore_next_input:
+                ignore_next_input = False
+                return
             query = e.args if isinstance(e.args, str) else ""
             if len(query) < 3:
                 return
@@ -104,16 +186,36 @@ async def _render_field(field_cfg, data, fields, files, on_file_upload, max_uplo
                 return
             match = next((r for r in nominatim_results if r["display_name"] == chosen), None)
             if match:
-                coords = (match["lat"], match["lon"])
-                loc_map.set_center(coords)
-                loc_map.set_zoom(12)
-                if loc_marker is not None:
-                    loc_marker.move(coords[0], coords[1])
-                else:
-                    loc_marker = loc_map.marker(latlng=coords)
+                _set_marker(match["lat"], match["lon"])
+
+        async def _on_map_click(e, sel=loc_select):
+            nonlocal ignore_next_input, reverse_lookup_running
+            if reverse_lookup_running:
+                ui.notify(t("location_lookup_wait"), color="warning")
+                return
+            args = e.args if isinstance(e.args, dict) else {}
+            latlng = args.get("latlng") if isinstance(args.get("latlng"), dict) else args
+            lat = latlng.get("lat")
+            lon = latlng.get("lng", latlng.get("lon"))
+            if lat is None or lon is None:
+                return
+            lat = float(lat)
+            lon = float(lon)
+            _set_marker(lat, lon)
+            reverse_lookup_running = True
+            try:
+                label = await _nominatim_reverse(lat, lon)
+                if not label:
+                    label = f"{lat:.5f}, {lon:.5f}"
+                ignore_next_input = True
+                sel.set_options({label: label})
+                sel.set_value(label)
+            finally:
+                reverse_lookup_running = False
 
         loc_select.on("input-value", lambda e: asyncio.ensure_future(_on_input_value(e)))
         loc_select.on("update:model-value", _on_select_change)
+        loc_map.on("map-click", _on_map_click)
         fields[field_cfg.name] = loc_select
     elif field_cfg.type == "email":
         fields[field_cfg.name] = ui.input(
