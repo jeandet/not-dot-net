@@ -6,11 +6,19 @@ from sqlalchemy import func, select
 
 
 from not_dot_net.backend.db import User, AuthMethod, session_scope, get_user_db
+from not_dot_net.backend.profile_photo import (
+    profile_photo_data_uri,
+    profile_photo_max_bytes,
+    remove_profile_photo,
+    save_profile_photo,
+    validate_profile_photo_upload,
+)
 from not_dot_net.backend.schemas import UserUpdate
 from not_dot_net.backend.users import get_user_manager
 from not_dot_net.frontend.i18n import t
 from not_dot_net.backend.permissions import permission, has_permissions
 from not_dot_net.backend.auth.ldap import AD_ATTR_MAP
+from not_dot_net.config import files_config
 
 MANAGE_USERS = permission("manage_users", "Manage users", "Edit/delete users in directory")
 
@@ -151,10 +159,9 @@ def _person_card(person: User, current_user: User, state: dict):
 
         header = ui.row().classes("items-center gap-3 cursor-pointer w-full")
         with header:
-            if person.photo:
-                import base64
-                b64 = base64.b64encode(person.photo).decode()
-                ui.image(f"data:image/jpeg;base64,{b64}").classes(
+            photo_uri = profile_photo_data_uri(person.photo)
+            if photo_uri:
+                ui.image(photo_uri).classes(
                     "w-12 h-12 rounded-full object-cover"
                 )
             else:
@@ -455,6 +462,66 @@ async def _render_edit_form(container, person: User, current_user: User, state: 
         _add_field("company", t("company"), person.company or "")
         _add_field("description", t("description"), person.description or "")
         _add_field("webpage", t("webpage"), person.webpage or "")
+
+        files_cfg = await files_config.get()
+        with ui.column().classes("w-full gap-2"):
+            ui.label(t("photo")).classes("text-sm font-medium")
+            photo_uri = profile_photo_data_uri(person.photo)
+            if photo_uri:
+                ui.image(photo_uri).classes("w-24 h-24 rounded-full object-cover")
+            else:
+                ui.icon("person", size="xl").classes("rounded-full bg-gray-200 p-3")
+
+            async def handle_photo_upload(event):
+                upload = event.file
+                content = await upload.read()
+                filename = upload.name or ""
+                error = await validate_profile_photo_upload(content, filename)
+                if error:
+                    ui.notify(t(error), color="negative")
+                    return
+                if not await save_profile_photo(person.id, content):
+                    ui.notify(t("profile_photo_upload_failed"), color="negative")
+                    return
+                from not_dot_net.backend.audit import log_audit
+                await log_audit(
+                    "user", "update",
+                    actor_id=current_user.id, actor_email=current_user.email,
+                    target_type="user", target_id=person.id,
+                    detail="fields=photo",
+                    metadata={"changes": {"photo": {"old": bool(person.photo), "new": True}}},
+                )
+                ui.notify(t("profile_photo_updated"), color="positive")
+                await _finish_save(container, person, current_user, state)
+
+            ui.upload(
+                label=t("upload_profile_photo"),
+                auto_upload=True,
+                max_file_size=profile_photo_max_bytes(files_cfg.profile_photo_max_size_mb),
+                on_upload=handle_photo_upload,
+            ).props("outlined flat accept='.jpg,.jpeg,.png'").classes("w-full max-w-sm")
+
+            if person.photo:
+                async def do_remove_photo():
+                    if not await remove_profile_photo(person.id):
+                        ui.notify(t("profile_photo_upload_failed"), color="negative")
+                        return
+                    from not_dot_net.backend.audit import log_audit
+                    await log_audit(
+                        "user", "update",
+                        actor_id=current_user.id, actor_email=current_user.email,
+                        target_type="user", target_id=person.id,
+                        detail="fields=photo",
+                        metadata={"changes": {"photo": {"old": True, "new": False}}},
+                    )
+                    ui.notify(t("profile_photo_removed"), color="positive")
+                    await _finish_save(container, person, current_user, state)
+
+                ui.button(
+                    t("remove_profile_photo"),
+                    icon="delete",
+                    on_click=do_remove_photo,
+                ).props("flat dense color=negative")
 
         async def _do_save(ad_conn=None):
             submitted = {}
