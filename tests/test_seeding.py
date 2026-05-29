@@ -64,12 +64,13 @@ def test_onboarding_workflow_seeds_use_current_schema():
 
 @pytest.mark.asyncio
 async def test_seed_fake_workflows_submits_with_valid_actors(monkeypatch):
-    from not_dot_net.backend import seed_data, workflow_service
+    from not_dot_net.backend import seed_data, seeding, workflow_service
 
     creator = _user("staff")
     approver = _user("director")
     request_id = uuid.uuid4()
     calls = []
+    backdated = []
 
     monkeypatch.setattr(
         seed_data,
@@ -106,6 +107,11 @@ async def test_seed_fake_workflows_submits_with_valid_actors(monkeypatch):
     monkeypatch.setattr(workflow_service, "create_request", fake_create_request)
     monkeypatch.setattr(workflow_service, "submit_step", fake_submit_step)
 
+    async def fake_backdate_workflow_request(request_id, days):
+        backdated.append({"request_id": request_id, "days": days})
+
+    monkeypatch.setattr(seeding, "_backdate_workflow_request", fake_backdate_workflow_request)
+
     await _seed_fake_workflows([creator, approver])
 
     assert calls == [
@@ -134,3 +140,6 @@ async def test_seed_fake_workflows_submits_with_valid_actors(monkeypatch):
             "ad_creds": ("seed", "seed"),
         },
     ]
+    assert len(backdated) == 1
+    assert backdated[0]["request_id"] == request_id
+    assert 0 <= backdated[0]["days"] <= 10

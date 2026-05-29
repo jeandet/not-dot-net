@@ -4,7 +4,7 @@ import logging
 import os
 import random as _random
 from contextlib import asynccontextmanager
-from datetime import date, timedelta
+from datetime import date, datetime, timezone, timedelta
 from types import SimpleNamespace
 
 from not_dot_net.backend.db import session_scope, get_user_db
@@ -180,12 +180,37 @@ async def _seed_fake_workflows(users: list) -> None:
                     actor_user=approver_actor,
                 )
 
+            await _backdate_workflow_request(req.id, rng.randint(0, 10))
             count += 1
         except Exception as e:
             logger.warning("Seed workflow failed: %s", e)
 
     if count:
         logger.info("Seeded %d workflow requests", count)
+
+
+async def _backdate_workflow_request(request_id, days: int) -> None:
+    """Move a demo workflow request and its events back by a few days."""
+    if days <= 0:
+        return
+
+    from sqlalchemy import select
+
+    from not_dot_net.backend.workflow_models import WorkflowEvent, WorkflowRequest
+
+    timestamp = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=days)
+    async with session_scope() as session:
+        req = await session.get(WorkflowRequest, request_id)
+        if req is None:
+            return
+        req.created_at = timestamp
+        req.updated_at = timestamp
+        result = await session.execute(
+            select(WorkflowEvent).where(WorkflowEvent.request_id == request_id)
+        )
+        for event in result.scalars().all():
+            event.created_at = timestamp
+        await session.commit()
 
 
 async def _seed_resources_and_bookings(users: list) -> None:
