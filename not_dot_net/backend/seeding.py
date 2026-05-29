@@ -4,7 +4,8 @@ import logging
 import os
 import random as _random
 from contextlib import asynccontextmanager
-from datetime import date, timedelta
+from datetime import date, datetime, timezone, timedelta
+from types import SimpleNamespace
 
 from not_dot_net.backend.db import session_scope, get_user_db
 from not_dot_net.backend.schemas import UserCreate
@@ -71,6 +72,32 @@ async def seed_fake_users() -> None:
     await _seed_pages()
 
 
+def _workflow_creator_candidates(users: list) -> list:
+    """Prefer regular staff as demo requesters so approvals look realistic."""
+    staff = [u for u in users if u.role == "staff"]
+    return staff or [u for u in users if u.role in ("staff", "director")]
+
+
+def _choose_workflow_approver(rng, directors: list, creator):
+    """Choose a director who is not the requester when possible."""
+    distinct_directors = [u for u in directors if u.id != creator.id]
+    if distinct_directors:
+        return rng.choice(distinct_directors)
+    if directors:
+        return rng.choice(directors)
+    return creator
+
+
+def _seed_actor(user):
+    """Use the visible actor identity while bypassing RBAC for dev seed data."""
+    return SimpleNamespace(
+        id=user.id,
+        email=user.email,
+        role=user.role,
+        is_superuser=True,
+    )
+
+
 async def _seed_fake_workflows(users: list) -> None:
     """Seed ~20 workflow requests in various states."""
     from not_dot_net.backend.seed_data import WORKFLOW_SEEDS
@@ -78,7 +105,7 @@ async def _seed_fake_workflows(users: list) -> None:
 
     rng = _random.Random(42)
 
-    staff = [u for u in users if u.role in ("staff", "director")]
+    staff = _workflow_creator_candidates(users)
     directors = [u for u in users if u.role == "director"]
 
     if not staff:
@@ -87,6 +114,7 @@ async def _seed_fake_workflows(users: list) -> None:
     count = 0
     for seed in WORKFLOW_SEEDS:
         creator = rng.choice(staff)
+        creator_actor = _seed_actor(creator)
         try:
             req = await create_request(
                 workflow_type=seed["type"],
@@ -97,32 +125,92 @@ async def _seed_fake_workflows(users: list) -> None:
             if seed["step"] == "request" and seed["action"] is None:
                 pass
             elif seed["action"] == "submit":
-                await submit_step(req.id, creator.id, "submit", data={})
+                await submit_step(
+                    req.id,
+                    creator.id,
+                    "submit",
+                    data={},
+                    actor_user=creator_actor,
+                )
             elif seed["action"] == "approve":
-                await submit_step(req.id, creator.id, "submit", data={})
-                approver = rng.choice(directors) if directors else creator
+                req = await submit_step(
+                    req.id,
+                    creator.id,
+                    "submit",
+                    data={},
+                    actor_user=creator_actor,
+                )
+                approver = _choose_workflow_approver(rng, directors, creator)
+                approver_actor = _seed_actor(approver)
                 if seed["type"] == "onboarding" and seed["step"] in ("admin_validation", "done"):
-                    await submit_step(req.id, None, "submit", data=seed["data"])
+                    req = await submit_step(
+                        req.id,
+                        None,
+                        "submit",
+                        data=seed["data"],
+                        actor_token=req.token,
+                    )
                 await submit_step(
                     req.id, approver.id, "approve",
                     comment=seed.get("comment"),
+                    actor_user=approver_actor,
+                    ad_creds=("seed", "seed"),
                 )
             elif seed["action"] == "reject":
-                await submit_step(req.id, creator.id, "submit", data={})
-                approver = rng.choice(directors) if directors else creator
+                req = await submit_step(
+                    req.id,
+                    creator.id,
+                    "submit",
+                    data={},
+                    actor_user=creator_actor,
+                )
+                approver = _choose_workflow_approver(rng, directors, creator)
+                approver_actor = _seed_actor(approver)
                 if seed["type"] == "onboarding" and seed["step"] == "rejected":
-                    await submit_step(req.id, None, "submit", data=seed["data"])
+                    req = await submit_step(
+                        req.id,
+                        None,
+                        "submit",
+                        data=seed["data"],
+                        actor_token=req.token,
+                    )
                 await submit_step(
                     req.id, approver.id, "reject",
                     comment=seed.get("comment"),
+                    actor_user=approver_actor,
                 )
 
+            await _backdate_workflow_request(req.id, rng.randint(0, 10))
             count += 1
         except Exception as e:
             logger.warning("Seed workflow failed: %s", e)
 
     if count:
         logger.info("Seeded %d workflow requests", count)
+
+
+async def _backdate_workflow_request(request_id, days: int) -> None:
+    """Move a demo workflow request and its events back by a few days."""
+    if days <= 0:
+        return
+
+    from sqlalchemy import select
+
+    from not_dot_net.backend.workflow_models import WorkflowEvent, WorkflowRequest
+
+    timestamp = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=days)
+    async with session_scope() as session:
+        req = await session.get(WorkflowRequest, request_id)
+        if req is None:
+            return
+        req.created_at = timestamp
+        req.updated_at = timestamp
+        result = await session.execute(
+            select(WorkflowEvent).where(WorkflowEvent.request_id == request_id)
+        )
+        for event in result.scalars().all():
+            event.created_at = timestamp
+        await session.commit()
 
 
 async def _seed_resources_and_bookings(users: list) -> None:
